@@ -61,6 +61,7 @@ JWT	\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.
 MAC address	\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b
 WireGuard key	\b[A-Za-z0-9+/]{42}[AEIMQUYcgkosw]=(\s|$)
 ONT / PON serial	\b(ONT|PON|GPON|XGSPON)[-_ ]?(SN|SERIAL)\b
+ntfy topic (public instance = shared secret)	ntfy\.sh/[A-Za-z0-9_-]{6,}
 PATTERN_EOF
 )
 

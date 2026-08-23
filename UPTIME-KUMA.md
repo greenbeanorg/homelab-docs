@@ -190,7 +190,7 @@ token is the `X-Plex-Token` query parameter on the resulting URL.
 > **Gotcha:** `os.path.expandvars` leaves `${PLEX_TOKEN}` as a literal string when
 > the variable is unset, so a missing `.env` entry sends a header containing the
 > placeholder text and yields the same 401 — with no error from the script. See
-> §7.5 for the guard.
+> §8.5 for the guard.
 
 Verify by hand:
 
@@ -264,9 +264,56 @@ Kuma's HTTP request timeout, normally seen when a target VM is powered off. If a
 
 ---
 
-## 6. Rebuild from scratch
+## 6. Notifications
 
-[#6-rebuild-from-scratch](#6-rebuild-from-scratch)
+[#6-notifications](#6-notifications)
+
+Alerting is via **ntfy** push to phone. Configured in the Kuma UI, so it is UI-only
+state that must be recreated after a rebuild (§7) — the sync script does not manage
+notifications.
+
+| Setting | Value |
+| --- | --- |
+| Provider | ntfy |
+| Server | `https://ntfy.sh` (public instance) |
+| Topic | see `.env` / password manager — **not recorded here** |
+| Priority | 4 (high) — breaks through Do Not Disturb |
+| Scope | Default enabled, applied to all existing monitors |
+
+> **The topic name is a shared secret.** On the public ntfy.sh instance there are no
+> accounts: anyone who knows the topic can read every alert and publish fake ones.
+> It is a credential, not a config value, and does not belong in a public repo — hence
+> the placeholder above. The pre-commit hook blocks `ntfy.sh/<topic>` URLs for this
+> reason.
+
+Phone-side subscription: install the ntfy app, subscribe to the topic, and leave both
+**Use another server** (that is for self-hosted instances) and **Instant delivery in
+doze mode** (persistent connection, costs battery) unchecked. Firebase delivery is
+normally a few seconds.
+
+### Verifying
+
+The **Test** button in Kuma proves credentials only. To prove the whole path, stop
+something real and watch for the push:
+
+```bash
+docker stop <non-critical-container>   # or pause/unpause a monitor in the UI
+```
+
+An untested alert path is indistinguishable from a working one right up until the
+moment it matters.
+
+### Ordering note
+
+Configure the **AP maintenance window (§5.3) before** enabling notifications.
+Otherwise the first night produces a 22:00 false positive, which is how people learn
+to swipe alerts away without reading them.
+
+---
+
+## 7. Rebuild from scratch
+
+[#7-rebuild-from-scratch](#7-rebuild-from-scratch)
 
 ```bash
 # 1. Container
@@ -289,8 +336,8 @@ pip install -r requirements.txt
 python kuma_sync.py --dry-run && python kuma_sync.py
 ```
 
-Then recreate the UI-only state: **notification channels**, **check intervals**,
-and the **AP maintenance window** (§5.3).
+Then recreate the UI-only state: **notifications** (§6), **check intervals**, and the
+**AP maintenance window** (§5.3).
 
 ### Backup
 
@@ -307,9 +354,9 @@ docker run --rm \
 
 ---
 
-## 7. Known limitations of `kuma_sync.py`
+## 8. Known limitations of `kuma_sync.py`
 
-[#7-known-limitations](#7-known-limitations)
+[#8-known-limitations](#8-known-limitations)
 
 Documented so they aren't rediscovered later.
 
@@ -347,9 +394,9 @@ Documented so they aren't rediscovered later.
 
 ---
 
-## 8. Structural caveats
+## 9. Structural caveats
 
-[#8-structural-caveats](#8-structural-caveats)
+[#9-structural-caveats](#9-structural-caveats)
 
 - **The monitoring host sits inside the network it monitors.** If the LAN, the
   Mac, or Docker Desktop goes down, monitoring goes down silently with it. A
@@ -366,14 +413,17 @@ Documented so they aren't rediscovered later.
   survive a reboot.
 - **Kuma is served over plain HTTP**, no TLS. Acceptable on a flat trusted LAN;
   revisit alongside the planned VLAN segmentation.
-- **Nothing alerts off-dashboard yet.** Until a notification channel exists, this
-  is a dashboard rather than monitoring.
+- **No dead-man's switch.** ntfy alerts when a *monitored service* fails, but nothing
+  alerts when *Kuma itself* stops — a sleeping Mac, a dead Docker daemon, or a dropped
+  uplink all produce silence identical to everything being healthy. A free
+  healthchecks.io check pinged from cron on the monitoring host closes this: it alerts
+  when the pings stop arriving.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
-[#9-troubleshooting](#9-troubleshooting)
+[#10-troubleshooting](#10-troubleshooting)
 
 | Symptom | Check |
 | --- | --- |
@@ -404,5 +454,6 @@ Documented so they aren't rediscovered later.
 | Secrets | `.env`, referenced as `${VAR}` in the inventory |
 | Persistent state | Docker volume `uptime-kuma` (SQLite) |
 | Deletes | Never — unmanaged monitors are reported only |
+| Alerting | ntfy push, priority 4 — topic is a secret, kept out of this repo |
 | UI-only state | Intervals, retries, notifications, tags, maintenance windows |
 | Scheduled downtime | `AP` — nightly power timer, maintenance window 21:45–10:00 |
