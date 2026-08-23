@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+#
+# greenbeanorg — sanitization pre-commit hook
+#
+# One script, two behaviours. Drop a `.sanitizerc` in the repo root to relax
+# rules that do not apply to that repo:
+#
+#     ALLOW_PRIVATE_IPS=1     # configs that must actually run
+#
+# With no .sanitizerc, the strict docs profile applies.
+#
+# Install:
+#   cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Scans STAGED content only. Exits non-zero to block the commit.
+# Intentional exception:  git commit --no-verify
+#
+set -uo pipefail
+
+fail=0
+ALLOW_PRIVATE_IPS=0
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# shellcheck disable=SC1091
+[ -f "$repo_root/.sanitizerc" ] && . "$repo_root/.sanitizerc"
+
+note() { printf '  \033[33m%s\033[0m\n' "$1"; }
+bad()  { printf '\033[31mBLOCKED:\033[0m %s\n' "$1"; fail=1; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# --- 1. Files that should never be committed at all -------------------------
+
+while IFS= read -r f; do
+  case "$f" in
+    .env|*/.env|*.pem|*.key|*_rsa|*_ed25519|id_*|*.p12|*.pfx|*.kdbx)
+      bad "$f — secret-bearing file staged" ;;
+    *.bak|*.orig|*.swp|.DS_Store)
+      bad "$f — scratch file staged" ;;
+    *.rsc|*.backup)
+      note "$f — RouterOS export staged; confirm it used /export hide-sensitive" ;;
+  esac
+done <<< "$staged"
+
+# --- 2. Content patterns ----------------------------------------------------
+#
+# Each entry: description<TAB>extended-regex
+#
+patterns=$(cat <<'PATTERN_EOF'
+private key block	-----BEGIN [A-Z ]*PRIVATE KEY-----
+assigned private-key	private[-_]?key[[:space:]]*[:=][[:space:]]*["']?[A-Za-z0-9/+=_-]{16,}
+Plex token	X-Plex-Token["': =]+[A-Za-z0-9_-]{15,}
+assigned password/secret/token	(password|passwd|secret|token|api[_-]?key)[[:space:]]*[:=][[:space:]]*["']?[A-Za-z0-9/+._-]{8,}
+wifi PSK / passphrase	(psk|passphrase|wpa[-_]?key|pre[-_]?shared[-_]?key)[[:space:]]*[:=][[:space:]]*["']?[A-Za-z0-9/+._-]{8,}
+SNMP community	(snmp[-_]?)?community[[:space:]]*[:=][[:space:]]*["']?[A-Za-z0-9_-]{4,}
+AWS access key id	\bAKIA[0-9A-Z]{16}\b
+GitHub token	\bgh[pousr]_[A-Za-z0-9]{20,}\b
+Slack/Discord webhook	https://(hooks\.slack\.com|discord(app)?\.com/api/webhooks)/
+JWT	\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.
+MAC address	\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b
+WireGuard key	\b[A-Za-z0-9+/]{42}[AEIMQUYcgkosw]=(\s|$)
+ONT / PON serial	\b(ONT|PON|GPON|XGSPON)[-_ ]?(SN|SERIAL)\b
+PATTERN_EOF
+)
+
+# Docs profile only: internal addressing must be masked.
+# NOTE: the separator must be a real tab, not a literal \t — hence $'\t' in a
+# variable. Do not wrap these regexes in $'...', which would eat \b as backspace.
+if [ "$ALLOW_PRIVATE_IPS" -ne 1 ]; then
+  TAB=$'\t'
+  patterns+="
+unmasked RFC1918 address (use 10.x.x.N)${TAB}\b10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\b
+unmasked RFC1918 address (192.168)${TAB}\b192\.168\.[0-9]{1,3}\.[0-9]{1,3}\b"
+fi
+
+# Placeholders that are always acceptable.
+allow='(10\.x\.x\.|x\.x\.x|<[a-zA-Z_ -]+>|\$\{[A-Z_]+\}|XXXX|REDACTED|CHANGEME|example\.com|your-|<your)'
+
+while IFS= read -r f; do
+  git show ":$f" 2>/dev/null | grep -Iq . || continue      # skip binaries
+  [ "$(basename "$f")" = "pre-commit" ] && continue         # skip self
+
+  content=$(git show ":$f" 2>/dev/null)
+
+  while IFS=$'\t' read -r desc regex; do
+    [ -z "${regex:-}" ] && continue
+    # -e guards patterns starting with '-'; -i catches KEY=value spellings.
+    hits=$(printf '%s\n' "$content" \
+             | grep -niE -e "$regex" \
+             | grep -viE -e "$allow" || true)
+    if [ -n "$hits" ]; then
+      bad "$f — $desc"
+      printf '%s\n' "$hits" | head -5 | while IFS= read -r line; do
+        note "${line:0:120}"
+      done
+    fi
+  done <<< "$patterns"
+done <<< "$staged"
+
+# --- 3. Result --------------------------------------------------------------
+
+if [ "$fail" -ne 0 ]; then
+  printf '\nCommit blocked. Sanitize, re-stage, and try again.\n'
+  printf 'Profile: %s\n' \
+    "$([ "$ALLOW_PRIVATE_IPS" -eq 1 ] && echo 'configs (private IPs allowed)' || echo 'docs (strict)')"
+  cat <<'MSG'
+
+  Secrets    ${VAR} or <placeholder>, never literals
+  Hostnames  kept as-is
+  WAN / ISP / ONT / MAC details are never committed
+
+Intentional exception:  git commit --no-verify
+MSG
+  exit 1
+fi
+
+exit 0
