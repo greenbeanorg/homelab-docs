@@ -74,8 +74,10 @@ unmasked RFC1918 address (use 10.x.x.N)${TAB}\b10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]
 unmasked RFC1918 address (192.168)${TAB}\b192\.168\.[0-9]{1,3}\.[0-9]{1,3}\b"
 fi
 
-# Placeholders that are always acceptable.
-allow='(10\.x\.x\.|x\.x\.x|<[a-zA-Z_ -]+>|\$\{[A-Z_]+\}|XXXX|REDACTED|CHANGEME|example\.com|your-|<your)'
+# Placeholders that are always acceptable, plus env-lookup idioms — code that
+# READS a secret from the environment is the correct pattern, not a leak.
+allow='(10\.x\.x\.|x\.x\.x|<[a-zA-Z_ -]+>|\$\{[A-Z_]+\}|XXXX|REDACTED|CHANGEME|example\.com|your-|<your'
+allow+='|os\.getenv|os\.environ|getenv\(|environ\[|process\.env|System\.getenv|\bENV\[)'
 
 while IFS= read -r f; do
   git show ":$f" 2>/dev/null | grep -Iq . || continue      # skip binaries
