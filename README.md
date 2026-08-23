@@ -1,0 +1,57 @@
+# homelab-docs
+
+Production-style runbooks for a multi-site homelab: three Proxmox hosts across
+two sites, ZFS storage on TrueNAS SCALE, OPNsense edge routing over XGS-PON
+fiber, verified off-site backups, and a containerized service stack.
+
+These are working documents, not tutorials. Each one records what was actually
+built, why the approach was chosen, what broke along the way, and how to rebuild
+it from nothing.
+
+Sanitized configs and tooling live in
+[greenbeanorg/homelab](https://github.com/greenbeanorg/homelab).
+
+---
+
+## Runbooks
+
+| Doc | Covers |
+| --- | --- |
+| [TRUENAS.md](TRUENAS.md) | 30 TB storage migration — mdadm RAID5 → TrueNAS SCALE / ZFS RAIDZ1, with PCIe SATA controller passthrough, pool and dataset design, and dual SMB/NFS shares under a unified identity |
+| [UPS.md](UPS.md) | UPS monitoring conversion from PowerPanel (`pwrstat`) to NUT |
+| [UPTIME-KUMA.md](UPTIME-KUMA.md) | Declarative availability monitoring — monitors defined in YAML and reconciled into Uptime Kuma by a Python script, so the monitor set is version-controlled rather than click-configured |
+
+---
+
+## Conventions
+
+Every doc follows the same shape: a summary block up top, numbered sections, a
+"known limitations" or "caveats" section where the honest tradeoffs go, and a
+**Quick reference** table at the end for the things you actually look up at 2am.
+
+Sanitization is enforced by a pre-commit hook rather than by memory:
+
+| Rule | Applies |
+| --- | --- |
+| Internal addresses masked as `10.x.x.N` | this repo |
+| Real addresses permitted (configs must run) | `homelab`, via `.sanitizerc` |
+| Secrets referenced as `${VAR}` or `<placeholder>`, never literals | both |
+| WAN / ISP / ONT / MAC details never committed | both |
+
+The hook lives at [`scripts/pre-commit`](scripts/pre-commit) and blocks commits
+containing unmasked addresses, hardcoded credentials, private keys, tokens, MAC
+addresses, or staged `.env` files. Install it after cloning — git hooks aren't
+carried by a clone:
+
+```bash
+cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+```
+
+---
+
+## In progress
+
+- Ansible roles for fleet configuration (baseline, NUT, restic, Docker hosts)
+- Prometheus + Grafana + node_exporter for metrics alongside Uptime Kuma's up/down
+- VLAN segmentation on the CRS310, replacing the current flat L2 network
+- Terraform for Proxmox VM provisioning
