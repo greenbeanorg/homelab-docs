@@ -20,6 +20,7 @@ Sanitized configs and tooling live in
 | [TRUENAS.md](TRUENAS.md) | 30 TB storage migration — mdadm RAID5 → TrueNAS SCALE / ZFS RAIDZ1, with PCIe SATA controller passthrough, pool and dataset design, and dual SMB/NFS shares under a unified identity |
 | [UPS.md](UPS.md) | UPS monitoring conversion from PowerPanel (`pwrstat`) to NUT |
 | [UPTIME-KUMA.md](UPTIME-KUMA.md) | Declarative availability monitoring — monitors defined in YAML and reconciled into Uptime Kuma by a Python script, so the monitor set is version-controlled rather than click-configured |
+| [DNS.md](DNS.md) | Redundant Pi-hole resolvers in separate failure domains, advertised by Kea DHCPv4 option 6 — address-space layout, Teleporter parity, and the failure modes DHCP resolver lists actually have |
 
 ---
 
