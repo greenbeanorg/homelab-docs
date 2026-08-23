@@ -9,7 +9,7 @@ either resolver — including the Proxmox host one of them lives on — does not
 take the household off the internet.
 
 - **Primary:** `pihole` — ODROID-XU4, Armbian, Pi-hole in Docker — **10.x.x.250**
-- **Secondary:** `pihole2` — LXC on `swearengen`, Pi-hole host install — **10.x.x.249**
+- **Secondary:** `pihole2` — LXC on `wu`, Pi-hole host install — **10.x.x.249**
 - **DHCP:** Kea DHCPv4 on OPNsense — subnet `10.x.x.0/24`, pool `10.x.x.201-239`, option 6
 - **Local zone:** ~20 hand-maintained A records under `greenbean.org`
 - **Upstreams:** Quad9
@@ -31,7 +31,7 @@ take the household off the internet.
               ┌──────────────────┴──────────────────┐
               ▼                                     ▼
    pihole  10.x.x.250                    pihole2  10.x.x.249
-   ODROID-XU4 (bare hardware)            LXC on swearengen
+   ODROID-XU4 (bare hardware)            LXC on wu
    Pi-hole in Docker                     Pi-hole host install
               └──────────────┬──────────────────────┘
                              ▼
@@ -43,7 +43,7 @@ looks arbitrary later:
 
 **Separate hardware, not two guests.** The obvious build is two LXCs on two
 Proxmox nodes. Instead the primary lives on a standalone ODROID-XU4 that shares
-no PSU, no hypervisor, and no kernel with the rest of the lab. `swearengen`
+no PSU, no hypervisor, and no kernel with the rest of the lab. `wu`
 reboots for PVE updates; the XU4 doesn't care. The XU4's SD card dies; the LXC
 doesn't care.
 
@@ -176,7 +176,7 @@ dig +short @127.0.0.1 example.com                 # smoke test
 
 [#4-secondary-pihole2-lxc](#4-secondary-pihole2-lxc)
 
-Ubuntu 24.04 LXC on `swearengen`, Pi-hole installed by the official script
+Ubuntu 24.04 LXC on `wu`, Pi-hole installed by the official script
 (`curl -sSL https://install.pi-hole.net | bash`) directly on the container OS.
 
 - Same three blocklists, same upstreams, same local A records as the primary
@@ -262,6 +262,14 @@ the strongest argument for moving the zone into version control.
 NXDOMAIN for everything looks healthy. A DNS-query-type monitor against a known
 record on each resolver is the right check here.
 
+**The secondary shares a host with the router.** `pihole2` is an LXC on `wu`,
+which also runs the OPNsense VM. The two *resolvers* remain in separate failure
+domains — that is what protects routine patching and reboots, and it holds. But
+`wu` is a shared dependency: lose that host and the secondary resolver and all
+routing go together, so DNS redundancy buys nothing in that scenario. Moving
+`pihole2` to `swearengen` would make the resolver pair genuinely independent of
+the edge, and is the standing fix.
+
 ---
 
 ## 7. Rebuild from nothing
@@ -293,7 +301,7 @@ you can reach without working DNS is worth more.
 | | |
 | --- | --- |
 | Primary resolver | `pihole` / `odroidxu4` — `10.x.x.250`, Docker container `pihole` |
-| Secondary resolver | `pihole2` — `10.x.x.249`, LXC on `swearengen` |
+| Secondary resolver | `pihole2` — `10.x.x.249`, LXC on `wu` |
 | DHCP subnet / pool | `10.x.x.0/24`, pool `10.x.x.201 - 10.x.x.239` (39 dynamic leases) |
 | DHCP option | OPNsense → Kea DHCP → DHCPv4 → Subnets → Options → code **6**, data `10.x.x.250, 10.x.x.249` |
 | Rendered Kea config | `/usr/local/etc/kea/kea-dhcp4.conf` (generated — do not edit) |
