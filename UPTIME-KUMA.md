@@ -309,6 +309,70 @@ Configure the **AP maintenance window (§5.3) before** enabling notifications.
 Otherwise the first night produces a 22:00 false positive, which is how people learn
 to swipe alerts away without reading them.
 
+### 6.1 Dead-man's switch (healthchecks.io)
+
+ntfy alerts when a *monitored service* fails. Nothing in that path alerts when **Kuma
+itself** stops — a dead Docker daemon, a wedged container, or a dropped uplink all
+produce silence identical to everything being healthy. Silence is the one failure mode
+a monitoring system cannot report on its own.
+
+The switch inverts the direction: an **external** service expects a regular heartbeat
+and alerts when the heartbeat stops.
+
+| Setting | Value |
+| --- | --- |
+| Service | healthchecks.io (free tier — 20 checks) |
+| Check name | `kuma-reachable` |
+| Period / grace | 5 min / 10 min — alerts after ~15 min of silence |
+| Heartbeat source | `pihole` (ODROID-XU4), root crontab |
+| Integrations | ntfy (down: priority 5, up: 3) **and** email |
+
+**Why the XU4 and not the Mac.** The heartbeat must originate somewhere that is *not*
+the thing being monitored. The XU4 is the only host in the lab that depends on neither
+Proxmox node — so it can still report that Kuma is unreachable when the reason Kuma is
+unreachable is a hypervisor being down.
+
+**The cron line:**
+
+```bash
+*/5 * * * * curl -fsS -m 8 -o /dev/null http://10.x.x.235:3001/ && curl -fsS -m 10 --retry 3 -o /dev/null https://hc-ping.com/<ping-url>
+```
+
+The `&&` is doing the real work — the heartbeat fires **only if Kuma actually
+answered**. `-f` makes curl fail on an HTTP error rather than reporting a 502 as
+success. Without the conditional, this would only detect the XU4 dying.
+
+> **The ping URL is a credential.** Anyone holding it can send fake heartbeats and
+> suppress alerts indefinitely — same category as the ntfy topic, and equally excluded
+> from this repo.
+
+⚠️ **Two failure modes that look like success:**
+
+- **The check *name* is not the ping URL.** Pinging `https://hc-ping.com/<check-name>`
+  returns HTTP 400. Either use the UUID from the check's page, or enable
+  **Project Settings → Ping URL format → slugs**, which gives
+  `https://hc-ping.com/<ping-key>/<slug>` and survives a rebuilt check. Slug format
+  requires the check to already exist unless `?create=1` is appended.
+- **Cron's `PATH` is minimal on Armbian.** If `curl` isn't found the line fails
+  silently, which produces a *false alarm* rather than a missed one. Confirm with
+  `which curl` and use an absolute path if it lives anywhere unusual.
+
+**Verifying** — don't wait 15 minutes for a natural timeout:
+
+```bash
+curl -fsS https://hc-ping.com/<ping-url>/fail    # forces the check down, fires everything
+```
+
+Both the push and the email should land within seconds. Then let cron ping once and
+confirm the check recovers to green.
+
+Two delivery integrations is deliberate: the whole point is catching failures the
+primary path can't report, and a single channel reintroduces exactly that dependency.
+
+**Known gap:** this proves Kuma is *serving*, not that its checks are actually running.
+Curling a status-page heartbeat endpoint instead of the root would exercise the real
+monitoring pipeline.
+
 ---
 
 ## 7. Rebuild from scratch
@@ -399,9 +463,10 @@ Documented so they aren't rediscovered later.
 [#9-structural-caveats](#9-structural-caveats)
 
 - **The monitoring host sits inside the network it monitors.** If the LAN, the
-  Mac, or Docker Desktop goes down, monitoring goes down silently with it. A
-  push heartbeat to an external service, or a second Kuma instance on the
-  off-site VPS, would close that gap.
+  Mac, or Docker Desktop goes down, monitoring goes down with it — no longer
+  *silently*, since the §6.1 heartbeat reports the silence from outside. A second
+  Kuma instance on the off-site VPS would go further and keep monitoring running,
+  not merely announce that it stopped.
 - **macOS sleep stops monitoring.** Confirm the host never sleeps:
 
   ```bash
@@ -413,11 +478,9 @@ Documented so they aren't rediscovered later.
   survive a reboot.
 - **Kuma is served over plain HTTP**, no TLS. Acceptable on a flat trusted LAN;
   revisit alongside the planned VLAN segmentation.
-- **No dead-man's switch.** ntfy alerts when a *monitored service* fails, but nothing
-  alerts when *Kuma itself* stops — a sleeping Mac, a dead Docker daemon, or a dropped
-  uplink all produce silence identical to everything being healthy. A free
-  healthchecks.io check pinged from cron on the monitoring host closes this: it alerts
-  when the pings stop arriving.
+- **The dead-man's switch covers reachability, not correctness.** §6.1 alerts when Kuma
+  stops answering, but a Kuma that serves happily while its own checks are stalled still
+  looks healthy from outside.
 
 ---
 
@@ -455,5 +518,6 @@ Documented so they aren't rediscovered later.
 | Persistent state | Docker volume `uptime-kuma` (SQLite) |
 | Deletes | Never — unmanaged monitors are reported only |
 | Alerting | ntfy push, priority 4 — topic is a secret, kept out of this repo |
+| Dead-man's switch | healthchecks.io `kuma-reachable`, 5/10 min, cron on the XU4 (§6.1) |
 | UI-only state | Intervals, retries, notifications, tags, maintenance windows |
 | Scheduled downtime | `AP` — nightly power timer, maintenance window 21:45–10:00 |
