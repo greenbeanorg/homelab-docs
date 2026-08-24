@@ -8,9 +8,6 @@ These are working documents, not tutorials. Each one records what was actually
 built, why the approach was chosen, what broke along the way, and how to rebuild
 it from nothing.
 
-Sanitized configs and tooling live in
-[greenbeanorg/homelab](https://github.com/greenbeanorg/homelab).
-
 ---
 
 ## Runbooks
@@ -35,12 +32,11 @@ Every doc follows the same shape: a summary block up top, numbered sections, a
 
 Sanitization is enforced by a pre-commit hook rather than by memory:
 
-| Rule | Applies |
-| --- | --- |
-| Internal addresses masked as `10.x.x.N` | this repo |
-| Real addresses permitted (configs must run) | `homelab`, via `.sanitizerc` |
-| Secrets referenced as `${VAR}` or `<placeholder>`, never literals | both |
-| WAN / ISP / ONT / MAC details never committed | both |
+| Rule |
+| --- |
+| Internal addresses masked as `10.x.x.N` |
+| Secrets referenced as `${VAR}` or `<placeholder>`, never literals |
+| WAN / ISP / ONT / MAC details never committed |
 
 The hook lives at [`scripts/pre-commit`](scripts/pre-commit) and blocks commits
 containing unmasked addresses, hardcoded credentials, private keys, tokens, MAC
