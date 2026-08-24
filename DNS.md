@@ -172,7 +172,7 @@ abefc3caa26f   pihole/pihole:latest   "start.sh"   Up 2 days (healthy)   pihole
 
 ```bash
 sudo apt update && sudo apt -y dist-upgrade && sudo apt -y autoremove
-cd ~/pihole && docker compose pull && docker compose up -d
+cd /opt/pihole && docker compose pull && docker compose up -d
 sleep 15 && docker compose logs --tail=30
 dig +short @127.0.0.1 example.com                 # smoke test
 [ -f /var/run/reboot-required ] && echo "REBOOT REQUIRED"
@@ -315,7 +315,7 @@ you can reach without working DNS is worth more.
 | Test a resolver | `dig +short @10.x.x.250 example.com` |
 | Test blocking | `dig +short @10.x.x.250 stats.g.doubleclick.net` → `0.0.0.0` |
 | Search blocklists | `pihole -q --partial <domain>` (`--partial` is mandatory for HaGeZi) |
-| Primary container logs | `cd ~/pihole && docker compose logs --tail=50` |
+| Primary container logs | `cd /opt/pihole && docker compose logs --tail=50` |
 | Secondary version/update | `pihole -v` / `pihole -up` |
 | Rebuild gravity | `pihole -g` (or `docker exec pihole pihole -g` on the primary) |
 | Config sync | Web UI → Settings → Teleporter (export primary → import secondary) |
