@@ -59,7 +59,7 @@ matters — both resolvers dying at once — requires two unrelated hosts to fai
 primary — it was the original `curl | bash` host install, and the XU4 Docker
 instance was seeded from its Teleporter export. Keeping both is a *liability*
 (two upgrade paths, two ways for config to drift), not a feature. See
-[§6](#6-known-limitations).
+[§7](#7-known-limitations).
 
 **The router is not a resolver.** OPNsense forwards nothing and runs no local
 DNS role in this design — it only *advertises* the two Pi-holes. Enabling
@@ -168,7 +168,7 @@ abefc3caa26f   pihole/pihole:latest   "start.sh"   Up 2 days (healthy)   pihole
 > keep it out of the environment entirely — never both.
 
 **Routine update** (this is the primary resolver — see
-[§6](#6-known-limitations) before running it unattended):
+[§7](#7-known-limitations) before running it unattended):
 
 ```bash
 sudo apt update && sudo apt -y dist-upgrade && sudo apt -y autoremove
@@ -197,7 +197,7 @@ VMID       Status     Lock         Name
 - Same three blocklists, same upstreams, same local A records as the primary
 - Updated with `pihole -up` plus normal `apt` maintenance — **a different
   upgrade path from the primary**, which is the drift risk called out in
-  [§6](#6-known-limitations)
+  [§7](#7-known-limitations)
 - Unprivileged LXC; if this container is ever rebuilt, confirm it still binds
   :53 on both UDP and TCP before declaring it healthy
 
@@ -240,9 +240,95 @@ than adding lists by hand on one side.
 
 ---
 
-## 6. Known limitations
+## 6. Static-host resolver audit
 
-[#6-known-limitations](#6-known-limitations)
+[#6-static-host-resolver-audit](#6-static-host-resolver-audit)
+
+Redundancy is only real for hosts that know about both resolvers. Kea covers
+every leasing client; **every statically addressed host is on its own**, and
+those are disproportionately the ones that matter — hypervisors, storage, the
+router itself. A `.249` outage previously took down hosts configured years
+apart with a single nameserver and no record of which.
+
+This section is the procedure. The outstanding-work note lives in
+[§7](#7-known-limitations).
+
+### Building the host list
+
+Anything on the LAN that is **not** in the Kea lease table is static by
+definition. Diff the two:
+
+```bash
+# on OPNsense — what DHCP knows about
+awk -F, 'NR>1 {print $2}' /var/db/kea/*.csv | sort -u
+
+# everything actually answering on the wire
+nmap -sn 10.x.x.0/24 | awk '/Nmap scan report/ {print $NF}' | tr -d '()' | sort -u
+```
+
+Anything in the second list and not the first needs checking by hand. The
+primary Pi-hole's **query log client list** is a useful cross-check — it shows
+what is actually resolving, including hosts that ping silently.
+
+### Where the setting hides, per platform
+
+| Where | What to check |
+| --- | --- |
+| Proxmox hosts | `/etc/resolv.conf`, or Datacenter → Node → DNS in the web UI |
+| VMs / LXCs | anything given a static address at build time — check the guest, not the host |
+| TrueNAS SCALE | Network → Global Configuration → Nameservers |
+| OPNsense | System → Settings → General → DNS servers |
+| MikroTik CRS310 | `/ip dns print` |
+| Appliances | printers, IPMI/BMC, APs, IoT hubs — each carries its own independent config |
+
+### ⚠️ `/etc/resolv.conf` is frequently a lie
+
+On any host running `systemd-resolved`, `/etc/resolv.conf` is a symlink to a
+stub and hand edits are **silently reverted on reboot** — the real configuration
+lives in netplan or NetworkManager. Auditing with `cat` will produce a list of
+hosts that look correct and aren't.
+
+```bash
+resolvectl status | grep -A3 'DNS Servers'      # what is actually in effect
+```
+
+Use that as the check, and fix through netplan/NetworkManager rather than the
+file.
+
+### ⚠️ Stagger the order across hosts
+
+Because option 6 order is not failover ([§7](#7-known-limitations)), most
+resolver stacks try the first entry and fall back only after a timeout — so a
+dead primary yields *slow but working* resolution fleet-wide, which is harder to
+diagnose than an outright failure because nothing errors.
+
+Listing `.249` first on a minority of static hosts means a primary outage
+degrades only part of the fleet, and the difference between the two groups is
+itself a diagnostic signal.
+
+### Verification
+
+For each host, confirm **both** resolvers are listed and **both** answer from
+that host — reachability is per-host, not global:
+
+```bash
+dig +short @10.x.x.250 example.com
+dig +short @10.x.x.249 example.com
+```
+
+Record the result per host. A host that lists both but can only reach one is
+still a single point of failure, and looks fine from the resolver side.
+
+> **This audit is the motivating case for the planned Ansible `common` role.**
+> Resolver configuration managed fleet-wide means the next renumber — including
+> retiring the flat `10.x.x.0/24` — is a variable change and a playbook run
+> rather than another manual sweep with the same class of misses.
+
+---
+
+## 7. Known limitations
+
+[#7-known-limitations](#7-known-limitations)
 
 **Option 6 is not failover.** DHCP hands clients an ordered *list*; what
 happens when the first entry stops answering is entirely up to the client's
@@ -255,8 +341,9 @@ outage, not a seamless one.
 **Static hosts bypass DHCP entirely.** Proxmox nodes, TrueNAS, the CRS310, the
 Mac, and anything else with a hand-configured address never see option 6. An
 outage on `.249` previously took down hosts that had been configured with a
-single nameserver. **A full static-host DNS audit — confirming every manually
-configured host lists both resolvers — is outstanding.**
+single nameserver. **The full static-host audit — confirming every manually
+configured host lists both resolvers — is outstanding.** The procedure is
+[§6](#6-static-host-resolver-audit).
 
 **Two install methods, two upgrade paths.** Docker on the primary, host install
 on the secondary. Nothing enforces version parity; they can drift a release
@@ -279,9 +366,9 @@ record on each resolver is the right check here.
 
 ---
 
-## 7. Rebuild from nothing
+## 8. Rebuild from nothing
 
-[#7-rebuild-from-nothing](#7-rebuild-from-nothing)
+[#8-rebuild-from-nothing](#8-rebuild-from-nothing)
 
 If both resolvers are gone, DNS for the whole LAN is gone with them. Restore
 order:
@@ -301,6 +388,11 @@ order:
 Keep a current Teleporter export off-box — it is in the restic set, but a copy
 you can reach without working DNS is worth more.
 
+⚠️ **Statically configured hosts do not recover with the rest of the LAN.**
+Step 1 changes option 6, which reaches leasing clients only. Anything with a
+hand-configured resolver keeps pointing at the dead addresses until it is
+touched individually — see [§6](#6-static-host-resolver-audit).
+
 ---
 
 ## Quick reference
@@ -315,6 +407,8 @@ you can reach without working DNS is worth more.
 | Test a resolver | `dig +short @10.x.x.250 example.com` |
 | Test blocking | `dig +short @10.x.x.250 stats.g.doubleclick.net` → `0.0.0.0` |
 | Search blocklists | `pihole -q --partial <domain>` (`--partial` is mandatory for HaGeZi) |
+| What a host *actually* resolves with | `resolvectl status \| grep -A3 'DNS Servers'` (not `cat /etc/resolv.conf`) |
+| List DHCP-known hosts | `awk -F, 'NR>1 {print $2}' /var/db/kea/*.csv \| sort -u` (on OPNsense) |
 | Primary container logs | `cd /opt/pihole && docker compose logs --tail=50` |
 | Secondary version/update | `pihole -v` / `pihole -up` |
 | Rebuild gravity | `pihole -g` (or `docker exec pihole pihole -g` on the primary) |
