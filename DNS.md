@@ -12,7 +12,7 @@ take the household off the internet.
 - **Secondary:** `pihole2` — LXC 1000 on `wu`, Pi-hole host install — **10.x.x.249**
 - **DHCP:** Kea DHCPv4 on OPNsense — subnet `10.x.x.0/24`, pool `10.x.x.201-239`, option 6
 - **Local zone:** ~20 hand-maintained A records under `greenbean.org`
-- **Upstreams:** Quad9
+- **Upstreams:** local recursive, validating Unbound on each host — see [UNBOUND.md](UNBOUND.md)
 - **Date:** August 2026
 
 ---
@@ -33,9 +33,11 @@ take the household off the internet.
    pihole  10.x.x.250                    pihole2  10.x.x.249
    ODROID-XU4 (bare hardware)            LXC 1000 on wu
    Pi-hole in Docker                     Pi-hole host install
-              └──────────────┬──────────────────────┘
-                             ▼
-                        Quad9 upstream
+              ▼                                     ▼
+   Unbound 127.0.0.1:5335                Unbound 127.0.0.1:5335
+   (recursive, validating)               (recursive, validating)
+              ▼                                     ▼
+         root nameservers                     root nameservers
 ```
 
 Two decisions worth stating explicitly, because both are the kind of thing that
@@ -60,6 +62,13 @@ primary — it was the original `curl | bash` host install, and the XU4 Docker
 instance was seeded from its Teleporter export. Keeping both is a *liability*
 (two upgrade paths, two ways for config to drift), not a feature. See
 [§7](#7-known-limitations).
+
+**Recursive resolution per host, not a shared upstream.** Each Pi-hole runs its
+own local Unbound rather than both forwarding to Quad9 or to one shared
+resolver. A shared Unbound would put a single dependency underneath two
+resolvers built specifically to not share one — the same reasoning as the
+separate-hardware decision above, one layer down the stack. Full rationale,
+install, and cutover procedure: [UNBOUND.md](UNBOUND.md).
 
 **The router is not a resolver.** OPNsense forwards nothing and runs no local
 DNS role in this design — it only *advertises* the two Pi-holes. Enabling
@@ -152,7 +161,8 @@ Pi-hole runs as a single container, **not** as a host install:
   semver) via `PIHOLE_TAG=` in a `.env` beside the compose file. `latest` on the
   network's primary resolver is an unscheduled outage waiting for a bad push.
 - Web UI HTTPS-only on `443`, self-signed cert generated at first start
-- Upstreams: Quad9
+- Upstreams: local Unbound at `127.0.0.1#5335` — recursive and DNSSEC-validating,
+  not forwarded to a third party. Build and cutover: [UNBOUND.md](UNBOUND.md).
 
 ```bash
 aba@odroidxu4:~$ docker ps -a
@@ -175,6 +185,7 @@ sudo apt update && sudo apt -y dist-upgrade && sudo apt -y autoremove
 cd /opt/pihole && docker compose pull && docker compose up -d
 sleep 15 && docker compose logs --tail=30
 dig +short @127.0.0.1 example.com                 # smoke test
+dig +short @127.0.0.1 dnssec-failed.org            # expect empty — Unbound still validating
 [ -f /var/run/reboot-required ] && echo "REBOOT REQUIRED"
 ```
 
@@ -194,7 +205,9 @@ VMID       Status     Lock         Name
 1000       running                 pihole2
 ```
 
-- Same three blocklists, same upstreams, same local A records as the primary
+- Same three blocklists, same local A records as the primary. Upstream is its
+  **own** local Unbound instance, not a shared one — see the rationale in
+  [§1](#1-design) and the build in [UNBOUND.md](UNBOUND.md)
 - Updated with `pihole -up` plus normal `apt` maintenance — **a different
   upgrade path from the primary**, which is the drift risk called out in
   [§7](#7-known-limitations)
@@ -364,6 +377,16 @@ the strongest argument for moving the zone into version control.
 NXDOMAIN for everything looks healthy. A DNS-query-type monitor against a known
 record on each resolver is the right check here.
 
+**Recursive resolution traded one risk for two smaller ones.** Moving off
+Quad9 to per-host Unbound ([UNBOUND.md](UNBOUND.md)) removes a third party from
+every query, but each resolver can now fail in a way Pi-hole's own health check
+won't see — a stale DNSSEC trust anchor or corrupt root hints leaves the
+container reporting healthy while nothing resolves. It also drops Quad9's
+threat-intelligence blocking, only partly offset by HaGeZi TIF already in
+gravity ([§5](#5-keeping-the-two-in-parity)). Periodic re-verification
+(`dig dnssec-failed.org` expecting `SERVFAIL`, on both hosts) is the mitigation
+for the first; closing the coverage gap on the second is outstanding.
+
 ---
 
 ## 8. Rebuild from nothing
@@ -377,11 +400,15 @@ order:
    `9.9.9.9` so clients resolve while you work. The lab loses filtering and
    local `greenbean.org` names — that's acceptable for an hour.
 2. **Rebuild the secondary** (fastest path — an LXC from template, then the
-   install script). Import the most recent Teleporter archive.
+   install script). Install Unbound and validate it standalone
+   ([UNBOUND.md §2–4](UNBOUND.md)) **before** importing config — a resolver
+   pointed at a not-yet-working Unbound is worse than one still on `9.9.9.9`.
+   Import the most recent Teleporter archive, then flip the upstream.
 3. **Point option 6 at the secondary only**, renew a client, confirm resolution
    and local records.
 4. **Rebuild the primary** (Armbian image → Docker → compose file with the
-   pinned tag → Teleporter import).
+   pinned tag → Teleporter import). Same order: Unbound installed and validated
+   standalone first, upstream flipped only after it passes.
 5. **Restore option 6 to `.250, .249`** and verify both independently before
    walking away.
 
@@ -413,6 +440,8 @@ touched individually — see [§6](#6-static-host-resolver-audit).
 | Secondary version/update | `pihole -v` / `pihole -up` |
 | Rebuild gravity | `pihole -g` (or `docker exec pihole pihole -g` on the primary) |
 | Config sync | Web UI → Settings → Teleporter (export primary → import secondary) |
+| Upstream (both) | `127.0.0.1#5335` — local Unbound, not Quad9. Build/cutover: [UNBOUND.md](UNBOUND.md) |
+| Test DNSSEC validation | `dig @127.0.0.1 -p 5335 dnssec-failed.org` → `SERVFAIL`, no `ad` flag |
 | Client renew (Linux) | `sudo dhclient -r && sudo dhclient` |
 | Client renew (Windows) | `ipconfig /release && ipconfig /renew` |
 | Emergency upstream | Set option 6 to `9.9.9.9` on OPNsense |
