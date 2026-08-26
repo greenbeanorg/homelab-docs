@@ -34,9 +34,10 @@ things change with Unbound in front:
 - **DNSSEC validation is performed, not reported.** Quad9 tells you a query validated;
   Unbound proves it locally against the root trust anchor.
 
-**What's given up:** Quad9's malware/threat-intel blocking. Real subtraction, only
-partly offset by HaGeZi TIF (medium) already in gravity — see the follow-up in
-[DNS.md §5](DNS.md#5-keeping-the-two-in-parity) once lists are revisited.
+**What's given up:** Quad9's malware/threat-intel blocking. Offset by stepping HaGeZi
+TIF from medium to full in gravity — see [DNS.md §5](DNS.md#5-keeping-the-two-in-parity).
+Not a like-for-like swap: TIF is reputation-based like Quad9 was, but a different feed
+with different latency to brand-new threats.
 
 **What changes in failure mode.** Currently: Pi-hole up → DNS works. After: Pi-hole
 can be green while Unbound's trust anchor is stale or `root.hints` is broken, and
@@ -212,8 +213,11 @@ it matters — same shape as the untested-alert-path problem in
 - **Cold-cache queries are slower.** First-visit domains go from ~20ms anycast to a few
   hundred ms of full recursion. `prefetch: yes` and a warm cache close most of this gap
   for repeat traffic; it doesn't help the first hit.
-- **Quad9's threat-intel blocking is gone**, offset only partially by HaGeZi TIF already
-  in gravity. Revisit list coverage in [DNS.md §5](DNS.md#5-keeping-the-two-in-parity).
+- **Quad9's threat-intel blocking is gone**, offset by stepping HaGeZi TIF to full in
+  gravity — see [DNS.md §5](DNS.md#5-keeping-the-two-in-parity). A newly-registered-
+  domains list would close more of the gap but was deliberately left out: it flags
+  freshly registered domains on sight, a poor fit for a household that registers its
+  own domains regularly.
 - **New single point of failure per host.** A stale trust anchor or corrupt
   `root.hints` on either box takes down resolution for that resolver while Pi-hole
   itself reports healthy. `dns-root-data`/`unbound-anchor` (§2) is the mitigation, not

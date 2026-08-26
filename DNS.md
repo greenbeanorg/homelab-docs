@@ -232,12 +232,21 @@ Blocklists currently in use on both (HaGeZi):
 | List | Purpose |
 | --- | --- |
 | Multi PRO | Main ads/tracking/telemetry list |
-| TIF (medium) | Threat intelligence feeds — malware, phishing |
+| TIF (full) | Threat intelligence feeds — malware, phishing, C2 |
 | spam-tlds-adblock | Blanket block on abuse-heavy TLDs |
 
-Combined gravity: **~593,000 domains**, 0 invalid, all lists status `1` on both
-hosts. If the two counts diverge, the import didn't take — re-run it rather
-than adding lists by hand on one side.
+TIF was stepped up from **medium** to **full** to offset the malware/phishing
+blocking lost when [Unbound](UNBOUND.md) replaced Quad9 as upstream — see
+[§7](#7-known-limitations). HaGeZi's own docs flag the full TIF list as
+needing ≥1GB RAM; confirmed safe on the XU4 (232MB / 1.94GB container usage,
+1.7GB free at the host level, no swap in use). A companion newly-registered-
+domains list (`nrd-1m.txt`) was considered and deliberately **not** added — it
+flags freshly registered domains on sight, which is a poor fit for a household
+that registers its own domains regularly.
+
+Combined gravity: **~2.3 million domains**, identical on both hosts. If the
+two counts diverge, the import didn't take — re-run it rather than adding
+lists by hand on one side.
 
 > **Gotcha — `pihole -q` lies about HaGeZi.** HaGeZi ships ABP-style rules
 > (`||domain^`), and `pihole -q` matches **exactly** by default, so a blocked
@@ -377,15 +386,21 @@ the strongest argument for moving the zone into version control.
 NXDOMAIN for everything looks healthy. A DNS-query-type monitor against a known
 record on each resolver is the right check here.
 
-**Recursive resolution traded one risk for two smaller ones.** Moving off
-Quad9 to per-host Unbound ([UNBOUND.md](UNBOUND.md)) removes a third party from
-every query, but each resolver can now fail in a way Pi-hole's own health check
+**Recursive resolution traded one risk for another.** Moving off Quad9 to
+per-host Unbound ([UNBOUND.md](UNBOUND.md)) removes a third party from every
+query, but each resolver can now fail in a way Pi-hole's own health check
 won't see — a stale DNSSEC trust anchor or corrupt root hints leaves the
-container reporting healthy while nothing resolves. It also drops Quad9's
-threat-intelligence blocking, only partly offset by HaGeZi TIF already in
-gravity ([§5](#5-keeping-the-two-in-parity)). Periodic re-verification
-(`dig dnssec-failed.org` expecting `SERVFAIL`, on both hosts) is the mitigation
-for the first; closing the coverage gap on the second is outstanding.
+container reporting healthy while nothing resolves. Periodic re-verification
+(`dig dnssec-failed.org` expecting `SERVFAIL`, on both hosts) is the
+mitigation; there is no equivalent automatic check for this today.
+
+Quad9's threat-intelligence blocking was offset by stepping HaGeZi TIF from
+medium to full ([§5](#5-keeping-the-two-in-parity)) rather than left as a gap.
+That is not a like-for-like replacement — TIF is reputation-based and reactive
+by nature, the same category of coverage Quad9 provided, but a different feed
+with different latency to new threats. A newly-registered-domains list would
+close more of the remaining gap but was deliberately left out; see
+[§5](#5-keeping-the-two-in-parity).
 
 ---
 
