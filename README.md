@@ -51,14 +51,6 @@ cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
 ---
 
-## Recently completed projects
-
-- Multi-site WireGuard overlay
-- Declarative Uptime Kuma monitoring
-- Redundant DNS
-- 30TB storage migration
-- NFS migration
-
 ## In progress
 
 - Ansible roles for fleet configuration (baseline, NUT, restic, Docker hosts)
