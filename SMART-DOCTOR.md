@@ -98,16 +98,3 @@ this baseline.
 
 ---
 
-## Publishing this doc
-
-```bash
-cd ~/git/homelab-docs
-git pull --ff-only
-cp /path/to/SMART-DOCTOR.md .
-git add SMART-DOCTOR.md
-git commit -m "docs: add SMART Doctor runbook"
-git push
-```
-
-Then, as a separate commit, add the README index row per house
-convention (runbook commit first, index-row commit second).
