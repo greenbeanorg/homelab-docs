@@ -1,0 +1,339 @@
+# NetBox declarative inventory — greenbean homelab
+#
+# Source of truth for what should exist in NetBox. Reconciled by
+# netbox_sync.py, which is name/slug-keyed and non-destructive — same
+# pattern as ~/homelab-monitoring/uptime-kuma/inventory.yaml + kuma_sync.py.
+#
+# Renaming an entry here creates a new object rather than renaming the
+# existing one (the join key is the slug/name). Objects present in NetBox
+# but absent here are left alone — the script never deletes.
+
+sites:
+  - slug: home
+    name: "Home (Ormond Beach, FL)"
+  - slug: friend-lan
+    name: "Friend's LAN (remote site)"
+  - slug: oracle-cloud
+    name: "Oracle Cloud (kk1)"
+
+manufacturers:
+  - slug: generic
+    name: Generic/Whitebox
+  - slug: hardkernel
+    name: Hardkernel
+  - slug: mikrotik
+    name: MikroTik
+  - slug: tp-link
+    name: TP-Link
+  - slug: apple
+    name: Apple
+
+device_roles:
+  - slug: hypervisor
+    name: Hypervisor
+    color: "9c27b0"
+  - slug: router-firewall
+    name: Router/Firewall
+    color: "f44336"
+  - slug: switch
+    name: Switch
+    color: "2196f3"
+  - slug: access-point
+    name: Access Point
+    color: "4caf50"
+  - slug: dns-server
+    name: DNS Server
+    color: "ff9800"
+  - slug: nas-storage
+    name: NAS/Storage
+    color: "3f51b5"
+  - slug: media-server
+    name: Media Server
+    color: "e91e63"
+  - slug: monitoring
+    name: Monitoring
+    color: "00bcd4"
+  - slug: automation
+    name: Home Automation
+    color: "8bc34a"
+  - slug: security
+    name: Security/SIEM
+    color: "d32f2f"
+  - slug: vpn-gateway
+    name: VPN Gateway
+    color: "607d8b"
+  - slug: game-server
+    name: Game Server
+    color: "795548"
+  - slug: web-service
+    name: Web/App Service
+    color: "009688"
+  - slug: workstation
+    name: Workstation/Server
+    color: "9e9e9e"
+
+platforms:
+  - slug: proxmox-ve
+    name: Proxmox VE 9.2
+  - slug: opnsense
+    name: OPNsense 26.7 / FreeBSD 15.1
+  - slug: truenas-scale
+    name: TrueNAS SCALE 25.10
+  - slug: debian-13
+    name: Debian 13
+  - slug: ubuntu-2404
+    name: Ubuntu 24.04
+  - slug: armbian
+    name: "Armbian (Ubuntu 26.04, armhf)"
+  - slug: haos
+    name: Home Assistant OS
+  - slug: routeros
+    name: RouterOS
+  - slug: macos
+    name: macOS
+  - slug: fedora-44
+    name: Fedora 44
+  - slug: openwrt
+    name: OpenWrt
+
+cluster_types:
+  - slug: proxmox-ve
+    name: Proxmox VE
+  - slug: cloud
+    name: Cloud
+
+device_types:
+  - slug: custom-pc-i5-10600k
+    manufacturer: generic
+    model: "Custom PC (i5-10600K / 48GB)"
+  - slug: odroid-h3
+    manufacturer: hardkernel
+    model: ODROID-H3
+  - slug: odroid-xu4
+    manufacturer: hardkernel
+    model: ODROID-XU4
+  - slug: crs310-8g-2s-plus
+    manufacturer: mikrotik
+    model: CRS310-8G+2S+
+  - slug: eap610-v3
+    manufacturer: tp-link
+    model: "EAP610 (v3)"
+  - slug: mac-m4
+    manufacturer: apple
+    model: "Mac (M4)"
+  - slug: remote-proxmox-host
+    manufacturer: generic
+    model: "Remote Proxmox Host (unnamed hardware)"
+
+# ---------------------------------------------------------------------------
+# Physical devices
+# ---------------------------------------------------------------------------
+devices:
+  - name: swearengen
+    device_type: custom-pc-i5-10600k
+    role: hypervisor
+    site: home
+    platform: proxmox-ve
+    comments: "Primary Proxmox host. PVE 9.2.10, SATA controller passthrough to the TrueNAS VM."
+
+  - name: wu
+    device_type: odroid-h3
+    role: hypervisor
+    site: home
+    platform: proxmox-ve
+    comments: "Celeron N5105 / 31GB. Runs the OPNsense router VM and pihole2."
+
+  - name: remote-pve
+    device_type: remote-proxmox-host
+    role: hypervisor
+    site: friend-lan
+    platform: proxmox-ve
+    comments: "The friend's-LAN Proxmox host. Rename once the actual hostname is known."
+
+  - name: pihole-xu4
+    device_type: odroid-xu4
+    role: dns-server
+    site: home
+    platform: armbian
+    comments: "Primary Pi-hole, Docker on Armbian. Physical unit, not a VM."
+    primary_ip: 10.x.x.250/24
+    interface: eth0
+
+  - name: crs310
+    device_type: crs310-8g-2s-plus
+    role: switch
+    site: home
+    platform: routeros
+    comments: "Bridge-WAN/bridge-LAN split; ONT-on-a-stick SFP+ in slot; OPNsense hairpins between bridges."
+
+  - name: eap610
+    device_type: eap610-v3
+    role: access-point
+    site: home
+    comments: "On a nightly power timer, off ~22:00 until morning."
+    primary_ip: 10.x.x.3/24
+    interface: eth0
+
+  - name: abas-m4
+    device_type: mac-m4
+    role: monitoring
+    site: home
+    platform: macos
+    comments: "Runs Uptime Kuma and JobOps in Docker."
+    primary_ip: 10.x.x.235/24
+    interface: en0
+
+# ---------------------------------------------------------------------------
+# Clusters — one per hypervisor (not an actual PVE cluster, just a grouping
+# for that host's guests), plus a Cloud cluster for kk1
+# ---------------------------------------------------------------------------
+clusters:
+  - name: swearengen
+    type: proxmox-ve
+    site: home
+  - name: wu
+    type: proxmox-ve
+    site: home
+  - name: remote-pve
+    type: proxmox-ve
+    site: friend-lan
+  - name: "Oracle Cloud Free Tier"
+    type: cloud
+    site: oracle-cloud
+
+# ---------------------------------------------------------------------------
+# VMs / LXCs
+# ---------------------------------------------------------------------------
+virtual_machines:
+  # --- swearengen guests ---
+  - name: truenas
+    cluster: swearengen
+    role: nas-storage
+    platform: truenas-scale
+    comments: "VMID 1000; ZFS pool tank, RAIDZ1"
+    primary_ip: 10.x.x.20/24
+  - name: farnum
+    cluster: swearengen
+    role: media-server
+    platform: debian-13
+    comments: "Plex, over NFS"
+  - name: ellsworth
+    cluster: swearengen
+    role: web-service
+    platform: fedora-44
+    comments: "NetBox in Docker, host port 8000"
+  - name: stubbs
+    cluster: swearengen
+    role: workstation
+  - name: cochran
+    cluster: swearengen
+    role: workstation
+  - name: sol
+    cluster: swearengen
+    role: workstation
+  - name: jane
+    cluster: swearengen
+    role: workstation
+  - name: trixie
+    cluster: swearengen
+    role: workstation
+  - name: openwrt
+    cluster: swearengen
+    role: router-firewall
+    platform: openwrt
+  - name: wintest
+    cluster: swearengen
+    role: workstation
+  - name: searxng
+    cluster: swearengen
+    role: web-service
+  - name: mcnulty
+    cluster: swearengen
+    role: workstation
+  - name: haos
+    cluster: swearengen
+    role: automation
+    platform: haos
+    comments: "VMID 201, VMID scheme: 200s = core appliances"
+    primary_ip: 10.x.x.30/24
+
+  # --- wu guests ---
+  - name: opnsense
+    cluster: wu
+    role: router-firewall
+    platform: opnsense
+    comments: "VMID 100; LAN 10.x.x.1/24, Kea DHCP"
+    primary_ip: 10.x.x.1/24
+  - name: pihole2
+    cluster: wu
+    role: dns-server
+    platform: ubuntu-2404
+    comments: "LXC 1000, secondary resolver"
+    primary_ip: 10.x.x.249/24
+  - name: nuttal
+    cluster: wu
+    role: workstation
+  - name: hickok
+    cluster: wu
+    role: security
+    comments: "Wazuh; planned move to swearengen as VMID 202"
+  - name: utter
+    cluster: wu
+    role: workstation
+  - name: dority
+    cluster: wu
+    role: workstation
+  - name: game01
+    cluster: wu
+    role: game-server
+    comments: stopped
+  - name: kubervm01
+    cluster: wu
+    role: workstation
+    comments: stopped
+  - name: kubervm02
+    cluster: wu
+    role: workstation
+    comments: stopped
+
+  # --- remote site guests ---
+  - name: friend-pihole
+    cluster: remote-pve
+    role: dns-server
+    comments: "Pi-hole for the friend's LAN"
+  - name: zombie
+    cluster: remote-pve
+    role: vpn-gateway
+    platform: debian-13
+    comments: >-
+      WireGuard remote spoke (overlay 10.99.x.3, routes 192.168.x.0/24, NATs)
+      + LinuxGSM 7 Days to Die (Darkness Falls mod)
+    primary_ip: 192.168.x.124/24
+
+  # --- cloud ---
+  - name: kk1
+    cluster: "Oracle Cloud Free Tier"
+    role: vpn-gateway
+    platform: ubuntu-2404
+    comments: >-
+      Oracle Cloud Always Free, 4 vCPU/24GB/200GB ARM. WireGuard hub, overlay
+      10.99.x.1. NIC enp0s6 on the 10.x.179.0/24 VCN subnet (jumbo MTU 9000)
+      — exact host address not on file, fill in below once confirmed. Also
+      the restic off-site backup target (currently broken/disabled).
+    # primary_ip: <fill in once known>
+
+# ---------------------------------------------------------------------------
+# IPAM prefixes
+# ---------------------------------------------------------------------------
+prefixes:
+  - prefix: 10.x.x.0/24
+    site: home
+    description: "Home LAN, flat /24. DHCP pool .201-.239. VLAN segmentation onto 10.79.x.x planned."
+  - prefix: 10.99.x.0/24
+    description: "WireGuard hub-and-spoke overlay. Hub kk1 .1, OPNsense spoke .2, zombie spoke .3, roaming .11-.13."
+  - prefix: 10.x.179.0/24
+    site: oracle-cloud
+    description: "kk1 Oracle Cloud VCN subnet, NIC enp0s6, jumbo MTU 9000."
+  - prefix: 192.168.x.0/24
+    site: friend-lan
+    description: "Friend's remote LAN, subnet-routed through zombie over WireGuard."
