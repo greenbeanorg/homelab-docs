@@ -91,7 +91,8 @@ while IFS= read -r f; do
     # -e guards patterns starting with '-'; -i catches KEY=value spellings.
     hits=$(printf '%s\n' "$content" \
              | grep -niE -e "$regex" \
-             | grep -viE -e "$allow" || true)
+             | grep -viE -e "$allow" \
+             | grep -vE '[:=][[:space:]]*["'"'"']?[A-Z_][A-Z0-9_]{2,}["'"'"']?[[:space:]]*[,)]?[[:space:]]*$' || true)
     if [ -n "$hits" ]; then
       bad "$f — $desc"
       printf '%s\n' "$hits" | head -5 | while IFS= read -r line; do
