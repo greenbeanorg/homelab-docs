@@ -14,7 +14,7 @@ it from nothing.
 
 | Doc | Covers |
 | --- | --- |
-| [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose. The installation lives at /opt/netbox.
+| [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose.
 | [TRUENAS.md](TRUENAS.md) | 30 TB storage migration — mdadm RAID5 → TrueNAS SCALE / ZFS RAIDZ1, with PCIe SATA controller passthrough, pool and dataset design, and dual SMB/NFS shares under a unified identity |
 | [SMART-DOCTOR.md](SMART-DOCTOR.md) | Using smartmontools to establish a base health for the 4 x 10TB NAS drives.
 | [UPS.md](UPS.md) | UPS monitoring conversion from PowerPanel (`pwrstat`) to NUT |
