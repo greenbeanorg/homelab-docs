@@ -14,6 +14,7 @@ it from nothing.
 
 | Doc | Covers |
 | --- | --- |
+| [LAN-DEVICE-WATCHER.md](LAN-DEVICE-WATCHERNETBOX.md) | A crude Node.js LAN scanner
 | [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose.
 | [NETBOX-INVENTORY.md](NETBOX-INVENTORY.md) | Netbox python inventory script fed by a simple yaml
 | [TRUENAS.md](TRUENAS.md) | 30 TB storage migration — mdadm RAID5 → TrueNAS SCALE / ZFS RAIDZ1, with PCIe SATA controller passthrough, pool and dataset design, and dual SMB/NFS shares under a unified identity |
