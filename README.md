@@ -14,6 +14,7 @@ it from nothing.
 
 | Doc | Covers |
 | --- | --- |
+| [VLAN-SEGMENTATION.md](VLAN-SEGMENTATION.md) | Migration of greenbean.org from a flat 10.x.x.N/24 to a segmented VLAN network on 10.79.x.x. Covers the CRS310, a new TL-SG108E access switch, OPNsense, both Proxmox hosts, and the EAP610 AP.
 | [LAN-DEVICE-WATCHER.md](LAN-DEVICE-WATCHER.md) | A crude Node.js LAN scanner
 | [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose.
 | [NETBOX-INVENTORY.md](NETBOX-INVENTORY.md) | Netbox python inventory script fed by a simple yaml
