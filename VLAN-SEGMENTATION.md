@@ -389,7 +389,7 @@ continuation lines (additional VIDs print without the port name).
 
 ### 5. The SG108E was on DHCP, not 10.x.x.N
 
-Hours were spent trying to reach the documented default via a USB dongle on
+Some time was spent trying to reach the documented default via a USB dongle on
 various ports. It had pulled `10.x.x.N` from the LAN pool and was reachable
 from the normal network the entire time.
 
