@@ -411,7 +411,7 @@ reboot**. Batch such changes.
 ### 7. Tag and renumber must happen together
 
 Tagging a VM into VLAN 20 while it still holds a `10.0.0.x` address strands it
-— no gateway on that segment. Renumbering to `10.79.20.x` without the tag
+— no gateway on that segment. Renumbering to `10.79.x.x` without the tag
 strands it equally. Change the guest OS first, then the vNIC tag, then restart.
 
 ### 8. Stuck PHY looks exactly like a dead port
@@ -432,7 +432,7 @@ may reset their timer. Leave it connected and wait.
 ## Remaining work
 
 - [ ] **swearengen VM tags** — farnum, ellsworth, nuttal, hickok, truenas →
-      `tag=20`. Guest OSes already renumbered to `10.79.20.x`. Requires a host
+      `tag=20`. Guest OSes already renumbered to `10.79.x.x`. Requires a host
       reboot because of the TrueNAS passthrough.
 - [ ] **EAP610** — `t3st1ng` verification after the Kea interface binding fix;
       then move `gtf0` to VLAN 30 and add a guest SSID on VLAN 50.
