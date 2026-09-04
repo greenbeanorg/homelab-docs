@@ -1,6 +1,6 @@
 # swearengen Hard Freeze: Shared xHCI Controller Wedge
 
-Root-cause runbook for a full hypervisor hang on `swearengen` (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals.
+**Status: resolved.** Root-cause runbook for a full hypervisor hang on `swearengen` (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals. The permanent fix — moving the UPS off swearengen's USB entirely — is complete and documented in [UPS.md](UPS.md); this document covers the incident, root cause, and the mitigations (watchdog, AURA controller disable) that remain in place alongside it.
 
 ---
 
@@ -81,11 +81,10 @@ Effect: systemd pets `/dev/watchdog` roughly every 20s; if it stops for 60s (ful
 
 ## 4. Outstanding / Follow-up
 
-- [ ] Reboot `swearengen` (next natural opportunity) and confirm `systemctl show -p RuntimeWatchdogUSec` and `cat /sys/class/watchdog/watchdog0/timeout` agree (~60s / 1min)
-- [ ] Swap or reseat the CyberPower UPS USB cable — cheap first step, addresses the likely proximate trigger (flaky captive cable) independent of the controller-sharing root cause
-- [ ] Watch for recurrence: `journalctl -f | grep -i usbhid-ups`
-- [ ] **Migrate UPS off local USB entirely** — move to a Pi 2B (or similar low-power host) running as NUT server; `swearengen` becomes a NUT netclient (`MODE=netclient` in `/etc/nut/nut.conf`). This is the actual fix for controller-sharing risk — cable swap and watchdog are mitigations, not a cure. Blocked on hardware availability.
-- [ ] If a PCIe USB expansion card is ever added, put the UPS on that instead for genuine hardware isolation from onboard USB.
+- [x] **Migrate UPS off local USB entirely** — done. UPS moved to a found Raspberry Pi 2B (v1.1, BCM2836) running as NUT primary; `swearengen` cut over to `MODE=netclient`. Full topology, `DEADTIME`/`NOTIFYFLAG` tuning, and a passing reboot test are documented in [UPS.md](UPS.md). This was the actual fix for the controller-sharing root cause — watchdog and the AURA fix below were mitigations pending this.
+- [ ] Reboot `swearengen` (next natural opportunity, now unrelated to the UPS work) and confirm `systemctl show -p RuntimeWatchdogUSec` and `cat /sys/class/watchdog/watchdog0/timeout` agree (~60s / 1min)
+- [ ] Watch for recurrence of any *other* USB oddities now that the UPS and AURA controller are both off swearengen's onboard xHCI — the controller itself was never replaced, just relieved of its two least-trustworthy peripherals
+- [ ] If a PCIe USB expansion card is ever added, it's no longer urgent — the UPS's move to `pi2b` already solves the isolation problem this would have addressed
 
 ---
 

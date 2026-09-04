@@ -25,7 +25,7 @@ it from nothing.
 ### System Troubleshooting
 | Doc | Covers |
 | --- | --- |
-| [SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md) | Root-cause runbook for a full hypervisor hang on swearengen (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals.
+| [SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md) | **Resolved.** Root-cause runbook for a full hypervisor hang on swearengen (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals. Fix was moving the UPS off swearengen entirely — see UPS.md.
 
 ### Monitoring
 | Doc | Covers |
@@ -38,7 +38,7 @@ it from nothing.
 | [TRUENAS.md](TRUENAS.md) | 30 TB storage migration — mdadm RAID5 → TrueNAS SCALE / ZFS RAIDZ1, with PCIe SATA controller passthrough, pool and dataset design, and dual SMB/NFS shares under a unified identity |
 | [SMART-DOCTOR.md](SMART-DOCTOR.md) | Using smartmontools to establish a base health for the 4 x 10TB NAS drives.
 | [TRUENAS-UPS-REPORTING.md](TRUENAS-UPS-REPORTING.md) | Why the TrueNAS reporting page stays blank when NUT runs in netclient mode (NAS-132924) — the charts.d module that assumes a local `upsd`, a config override that fixes it without touching the immutable rootfs, and an init script to survive OS upgrades |
-| [UPS.md](UPS.md) | UPS monitoring conversion from PowerPanel (`pwrstat`) to NUT |
+| [UPS.md](UPS.md) | UPS monitoring via NUT, primary relocated to a dedicated Pi 2B with staggered shutdown ordering across three hosts (TrueNAS first, swearengen last) |
 
 ### Experimental / early-stage
 | Doc | Covers |

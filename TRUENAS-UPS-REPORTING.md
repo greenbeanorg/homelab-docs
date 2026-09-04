@@ -9,8 +9,16 @@ document is entirely about the reporting path, which is a separate mechanism wit
 separate failure.
 
 - **Host:** TrueNAS SCALE VM on `swearengen`, NUT netclient (Slave)
-- **NUT master:** `swearengen` at `10.x.x.5`, CyberPower CP1500PFCLCDa over USB
+- **NUT primary:** originally `swearengen` at `10.x.x.5` — **moved to `pi2b` at `10.x.x.101` as of September 2026**, see [UPS.md](UPS.md)
 - **Affects:** TrueNAS SCALE 24.x – 25.10.x (still present in 25.10.3 / 25.10.4, June 2026)
+
+> ⚠️ **Action needed:** the fix below hardcodes `MY_NUT_HOST` to the old
+> `swearengen` address. If this override is live in production, it needs
+> updating to the new primary's address or TrueNAS's UPS reporting graphs go
+> blank again — not from the original NAS-132924 bug recurring, but from
+> pointing at a host that no longer runs `upsd`. Check
+> `/etc/netdata/charts.d/nut_ups.conf` and the init-script master copy at
+> `/root/bin/nut_ups.conf` ([§5](#5-surviving-upgrades)) for the stale value.
 - **Upstream:** [NAS-132924](https://ixsystems.atlassian.net/browse/NAS-132924)
 - **Prerequisite:** [UPS.md](UPS.md) — the pwrstat → NUT conversion this sits on top of
 - **Date:** August 2026
@@ -93,8 +101,8 @@ workaround needed, and fully reversible by deleting the file.
 `/etc/netdata/charts.d/nut_ups.conf`:
 
 ```bash
-# NUT master
-MY_NUT_HOST="10.x.x.5:3493"
+# NUT primary (updated Sept 2026 — was 10.x.x.5 when swearengen held the UPS)
+MY_NUT_HOST="10.x.x.101:3493"
 
 nut_get_all() {
   run -t $nut_timeout upsc -l ${MY_NUT_HOST} || echo "skip-get-values"
@@ -162,7 +170,10 @@ the first boot after any upgrade that removed it.
 - **This is a patched appliance, not a fixed one.** The override has to survive every
   upgrade via the init script. Remove it once an upstream fix ships — watch NAS-132924.
 - **Single point of configuration.** `MY_NUT_HOST` is hardcoded. If the NUT master moves or
-  is renumbered, this file needs editing by hand along with everything else.
+  is renumbered, this file needs editing by hand along with everything else. This already
+  happened once — the primary moved from `swearengen` to `pi2b` in September 2026 — and is
+  exactly the kind of edit that's easy to forget when the visible symptom (blank graphs)
+  looks identical to the original NAS-132924 bug this document exists to fix.
 - **Appliance charts are a dead end long-term.** A Prometheus NUT exporter polling `upsd`
   on the master gives fleet-wide UPS metrics in Grafana for *every* UPS, with none of the
   survives-updates fragility. This workaround is a bridge to that, not a destination.
