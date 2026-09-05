@@ -12,6 +12,22 @@ it from nothing.
 
 ## Runbooks
 
+### System Automation
+| Doc | Covers |
+| --- | --- |
+| [TERRAFORM-PROXMOX-FIRST-APPLY-2026-09.md](./TERRAFORM-PROXMOX-FIRST-APPLY-2026-09.md) | First Terraform + Proxmox LXC provisioning pass from dority; covers cert/hostname drift and API token permission scoping gotchas |
+
+### System Troubleshooting
+| Doc | Covers |
+| --- | --- |
+| [SWEARENGEN-VMBR0-INTRA-BRIDGE-FORWARDING-BUG-2026-09.md](SWEARENGEN-VMBR0-INTRA-BRIDGE-FORWARDING-BUG-2026-09.md) | Workaround in place, root cause unresolved. Same-host VM-to-VM TCP flow silently dropped by vmbr0's intra-bridge forwarding for one specific VM pair, despite clean firewall/VLAN/FDB/physical-network state at every layer checked. Fixed by routing the flow through OPNsense instead of the local bridge. |
+| [SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md) | **Resolved.** Root-cause runbook for a full hypervisor hang on swearengen (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals. Fix was moving the UPS off swearengen entirely — see UPS.md.
+
+### Monitoring
+| Doc | Covers |
+| --- | --- |
+| [UPTIME-KUMA.md](UPTIME-KUMA.md) | Declarative availability monitoring — monitors defined in YAML and reconciled into Uptime Kuma by a Python script, so the monitor set is version-controlled rather than click-configured |
+
 ### Networking
 | Doc | Covers |
 | --- | --- |
@@ -21,16 +37,6 @@ it from nothing.
 | [PIHOLE-DOCKER.md](PIHOLE-DOCKER.md) | First-build procedure for the primary Pi-hole container on bare Armbian — freeing :53 from systemd-resolved, armhf image constraints, compose layout, and the initial Teleporter import |
 | [UNBOUND.md](UNBOUND.md) | Per-host recursive, DNSSEC-validating resolver replacing Quad9 as upstream on both Pi-holes — install, validation, cutover, and rollback |
 | [WIREGUARD.md](WIREGUARD.md) | Multi-site overlay network — hub-and-spoke WireGuard through a cloud instance so neither residential endpoint needs inbound reachability, with subnet routing to a second site and full-tunnel roaming clients |
-
-### System Troubleshooting
-| Doc | Covers |
-| --- | --- |
-| [SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md) | **Resolved.** Root-cause runbook for a full hypervisor hang on swearengen (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals. Fix was moving the UPS off swearengen entirely — see UPS.md.
-
-### Monitoring
-| Doc | Covers |
-| --- | --- |
-| [UPTIME-KUMA.md](UPTIME-KUMA.md) | Declarative availability monitoring — monitors defined in YAML and reconciled into Uptime Kuma by a Python script, so the monitor set is version-controlled rather than click-configured |
 
 ### Storage
 | Doc | Covers |
