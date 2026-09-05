@@ -114,4 +114,3 @@ Effect: systemd pets `/dev/watchdog` roughly every 20s; if it stops for 60s (ful
 
 ---
 
-*Publish checklist: verify all internal anchor links resolve; confirm no real credentials/MACs present (IPs in this doc are hostnames only, no RFC1918 addresses to mask); run dead-link curl loop against README index after commit.*
