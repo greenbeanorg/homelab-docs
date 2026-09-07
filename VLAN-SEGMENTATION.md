@@ -427,34 +427,36 @@ After the WAN outage, the ONT reached O5 but no lease appeared for roughly an
 hour, then recovered on its own with no intervention. Repeatedly power-cycling
 may reset their timer. Leave it connected and wait.
 
+### 10. OPNsense IOT interface DNS-allow rule pointed at stale Pi-hole IPs
+
+After the Pi-hole renumber to `10.x.x.x`, the IOT interface's "DNS to
+Pi-holes" allow rule was never updated — it still referenced the old
+`10.x.x.250` / `10.x.x.249` addresses. Traffic hitting the rule fell
+through to the "block private nets" rule below it, and since Pi-hole DNS
+lives on RFC1918 space, that rule silently ate DNS requests from VLAN 40.
+The Yolink hub went unreachable from the mobile app even though the
+device itself was online and pingable on the LAN — a classic "device up,
+service down" signature.
+
+**Fix:** consolidated both Pi-hole IPs into a single alias and pointed
+one DNS-allow rule at the alias instead of two hardcoded hosts. Any
+future Pi-hole re-IP only needs the alias updated once, not every
+interface rule that references DNS.
+
 ---
 
-## Remaining work
+## Remaining work — closed out 2026-09-07
 
-- [ ] **swearengen VM tags** — farnum, ellsworth, nuttal, hickok, truenas →
-      `tag=20`. Guest OSes already renumbered to `10.79.x.x`. Requires a host
-      reboot because of the TrueNAS passthrough.
-- [ ] **EAP610** — `t3st1ng` verification after the Kea interface binding fix;
-      then move `gtf0` to VLAN 30 and add a guest SSID on VLAN 50.
-- [ ] **Move sunroom clients** — printer to port 5, Roku to port 6, Yolink to
-      port 4.
-- [ ] **WireGuard** — both tunnels dropped during the WAN outage; peers may
-      need updating if the public IP changed.
-- [ ] **MGMT renumber** — OPNsense to 10.x.x.N, both Pi-holes, CRS310 (drop
-      `10.x.x.N`), SG108E, EAP610, both Proxmox hosts. Then update the DNS_1
-      Kea option, the ~20 A records, WireGuard `AllowedIPs` on kk1 and every
-      spoke, restic config, and `inventory.yaml`.
-- [ ] **Plex LAN Networks** — add the new client subnets or farnum will treat
-      local clients as remote and transcode.
-- [ ] **Avahi** — needed for mDNS across VLAN boundaries (casting, printer
-      discovery).
-- [ ] **Uptime Kuma** — move to ellsworth, update `inventory.yaml` for the new
-      addresses.
-- [ ] **Check `scripts/pre-commit`** — if the sanitizer regex is hardcoded to
-      `10\.0\.0\.` rather than matching RFC1918 generally, it will silently
-      stop masking after the renumber.
-- [ ] **Delete stale hickok** on wu (VMID 102) — migration to swearengen (202)
-      is complete.
+- [x] **swearengen VM tags** — farnum, ellsworth, nuttal, hickok, truenas → `tag=20`
+- [x] **EAP610** — `t3st1ng` verified post Kea-binding fix; `gtf0` moved to VLAN 30, guest SSID on VLAN 50
+- [x] **Move sunroom clients** — printer/Roku/Yolink to their assigned ports
+- [x] **WireGuard** — peers confirmed post-outage, `AllowedIPs` current
+- [x] **MGMT renumber** — OPNsense, both Pi-holes, CRS310, SG108E, EAP610, both Proxmox hosts renumbered; Kea DNS option, A records, WireGuard `AllowedIPs`, restic config, `inventory.yaml` all updated
+- [x] **Plex LAN Networks** — new client subnets added
+- [x] **Avahi** — mDNS working across VLAN boundaries
+- [x] **Uptime Kuma** — moved to ellsworth, `inventory.yaml` updated
+- [x] **scripts/pre-commit** — sanitizer regex confirmed RFC1918-general, not hardcoded to the old subnet
+- [x] **Delete stale hickok** on wu (VMID 102) — migration to swearengen (202) complete
 
 ---
 
