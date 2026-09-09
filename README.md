@@ -20,6 +20,7 @@ it from nothing.
 ### System Troubleshooting
 | Doc | Covers |
 | --- | --- |
+| [TRUENAS-NETDATA-NUT-REMOTE-UPS-2026-09.md](TRUENAS-NETDATA-NUT-REMOTE-UPS-2026-09.md) | Netdata’s nut_ups collector was failing against the remote NUT server. Disabled the redundant collector and used Netdata’s working nut collector with the remote UPS endpoint configured directly.
 | [PIHOLE-KUMA-AUTH-OUTAGE.md](PIHOLE-KUMA-AUTH-OUTAGE.md) | Pi-hole v6 session-auth outage — root cause, Push monitor migration, session-leak fix |
 | [SWEARENGEN-VMBR0-INTRA-BRIDGE-FORWARDING-BUG-2026-09.md](SWEARENGEN-VMBR0-INTRA-BRIDGE-FORWARDING-BUG-2026-09.md) | Workaround in place, root cause unresolved. Same-host VM-to-VM TCP flow silently dropped by vmbr0's intra-bridge forwarding for one specific VM pair, despite clean firewall/VLAN/FDB/physical-network state at every layer checked. Fixed by routing the flow through OPNsense instead of the local bridge. |
 | [SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md) | **Resolved.** Root-cause runbook for a full hypervisor hang on swearengen (i5-10600K/48GB, primary Proxmox host) traced to a wedged USB controller shared between the UPS and other USB peripherals. Fix was moving the UPS off swearengen entirely — see UPS.md.
