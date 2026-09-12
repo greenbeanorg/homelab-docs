@@ -43,6 +43,7 @@ it from nothing.
 ### Storage
 | Doc | Covers |
 | --- | --- |
+| [RESTIC-BACKUP.md](RESTIC-BACKUP.md) | Restic off-site backup
 | [NVME-HEALTH-CHECK.md](NVME-HEALTH-CHECK.md) | A script to briefly check the health of proxmox hosts nvme drives
 | [TRUENAS.md](TRUENAS.md) | 30 TB storage migration — mdadm RAID5 → TrueNAS SCALE / ZFS RAIDZ1, with PCIe SATA controller passthrough, pool and dataset design, and dual SMB/NFS shares under a unified identity |
 | [SMART-DOCTOR.md](SMART-DOCTOR.md) | Using smartmontools to establish a base health for the 4 x 10TB NAS drives.
@@ -87,5 +88,3 @@ cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
 - Ansible roles for fleet configuration (baseline, NUT, restic, Docker hosts)
 - Prometheus + Grafana + node_exporter for metrics alongside Uptime Kuma's up/down
-- VLAN segmentation on the CRS310, replacing the current flat L2 network
-- Terraform for Proxmox VM provisioning
