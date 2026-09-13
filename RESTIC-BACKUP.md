@@ -6,6 +6,7 @@ rather than the public internet.
 
 - **Source host:** `truenas` (TrueNAS SCALE VM, VMID 1000)
 - **Repo host:** `kk1` (Oracle Cloud, WireGuard hub, overlay `10.99.0.1`)
+- **Status:** live — backup and check both scheduled and running
 - **Date:** September 2026
 
 ---
@@ -35,8 +36,8 @@ scratch, scoped narrowly, and moved to run directly from TrueNAS:
   top of the tunnel encryption.
 - **Scope was narrowed on purpose.** The old script backed up five
   different hosts' configs; this one backs up a single TrueNAS dataset
-  (`/mnt/tank/storage/important`, ~221G). Proxmox/OPNsense/Home Assistant
-  config export is a separate, not-yet-rebuilt piece of work.
+  (`/mnt/tank/storage/important`). Proxmox/OPNsense/Home Assistant config
+  export is a separate, not-yet-rebuilt piece of work (see Honest caveats).
 
 ---
 
@@ -52,14 +53,11 @@ RESTIC_REPOSITORY="sftp:aba@10.99.0.1:/data"
 hub-and-spoke VPN topology). SSH key auth is already in place from TrueNAS to
 kk1; no password prompt.
 
-> ⚠️ **Capacity gotcha:** kk1's root volume is small (an OCI Ampere A1
-> instance, originally sized for its role as the WireGuard hub, not as a
-> backup target). At the time this was set up it had well under the ~221G
-> needed for the `important` dataset. A dedicated OCI block volume sized with
-> real headroom (300–400G+) is required before this repo can hold the full
-> dataset — track actual usage with `restic stats` and grow the volume before
-> it fills, since a backup that dies mid-write from a full disk leaves a
-> repo needing `restic check` before it can be trusted again.
+**Capacity — checked, currently fine.** kk1's root volume (`/dev/sda1`, 194G)
+sat at 51% used / 95G free after the first full backup landed (108.166 GiB
+added, 92.757 GiB stored post-compression). No dedicated block volume was
+needed. Revisit if `important` grows substantially — `restic stats` gives
+current repo size; `df -h` on kk1 gives headroom.
 
 ---
 
@@ -162,26 +160,37 @@ just repo metadata — the only way to be sure a backup is real and not just
    new WireGuard-only target.
 3. `restic snapshots` — confirmed empty/healthy fresh repo.
 4. `restic backup --dry-run --verbose --compression max` against the full
-   221G source — validated paths/permissions without writing or touching
+   source dataset — validated paths/permissions without writing or touching
    kk1's disk.
-5. `restic_backup.sh` run manually (not via cron) inside `tmux`, so it
-   survives an SSH drop across a run long enough to outlast a home WAN
-   uplink.
-6. `restic_check.sh` run once the backup completed, to verify data landed
-   intact before trusting the pipeline unattended.
+5. First real backup run by hand (not the wrapper script) inside a long-lived
+   session to survive an SSH drop across a run long enough to outlast a home
+   WAN uplink: 257,649 files / 122.115 GiB scanned, all new, 6h11m,
+   108.166 GiB added / 92.757 GiB stored (~14% compression).
+6. `restic_check.sh` run against the fresh repo — `restic check --read-data`,
+   5,630 packs, **no errors found** (52m34s — re-reads all data from kk1 over
+   the WAN link, so this is the slow, thorough check, not a quick one).
+7. `restic_backup.sh` (the actual wrapper, not the raw command) run by hand
+   to confirm the script itself works end-to-end — env sourcing, password
+   file check, unlock, backup, forget/prune, under the account cron will
+   run as. Second run found the parent snapshot and completed incrementally
+   in 16 seconds (8 files changed, rest unmodified) — confirms steady-state
+   nightly runtime will be seconds, not hours.
+8. Both scripts wired into TrueNAS's Cron Job UI (System Settings → Advanced
+   → Cron Jobs) — not a hand-edited `crontab -e`, for the same
+   boot-environment survival reasoning as §3.
 
 ### Dry-run performance note
 
 [#dry-run-performance-note](#dry-run-performance-note)
 
-The initial dry-run estimated ~51 minutes for 221G. `zpool iostat tank 2`
-during the run showed 1–2.7K read IOPS at only 80–170MB/s bandwidth — small,
-scattered reads rather than large sequential ones, meaning the run was
-**disk-seek-bound on the RAIDZ1 array**, not CPU/hashing-bound. Concluded not
-worth tuning (`--read-concurrency`, `GOMAXPROCS`) for a one-time full scan:
-restic's change-detection means every subsequent backup only re-reads files
-that actually changed, so ongoing runs should be a small fraction of this
-cost regardless.
+The initial dry-run estimated ~51 minutes for the full dataset.
+`zpool iostat tank 2` during the run showed 1–2.7K read IOPS at only
+80–170MB/s bandwidth — small, scattered reads rather than large sequential
+ones, meaning the run was **disk-seek-bound on the RAIDZ1 array**, not
+CPU/hashing-bound. Concluded not worth tuning (`--read-concurrency`,
+`GOMAXPROCS`) for a one-time full scan — confirmed correct in practice: the
+second (incremental) run took 16 seconds, since restic's change-detection
+means every subsequent backup only re-reads files that actually changed.
 
 ---
 
@@ -189,11 +198,12 @@ cost regardless.
 
 [#5-scheduling](#5-scheduling)
 
-Scheduled through **TrueNAS's own Cron Job UI** (System Settings → Advanced →
-Cron Jobs), not a hand-edited `crontab -e` — the same boot-environment
-survival reasoning as §3. `restic_backup.sh` runs on the primary schedule;
-`restic_check.sh` runs separately and less frequently (weekly is enough — no
-need to `--read-data`-verify 221G nightly).
+Scheduled through **TrueNAS's own Cron Job UI**, not a hand-edited
+`crontab -e` — the same boot-environment survival reasoning as §3.
+`restic_backup.sh` runs on the primary (daily) schedule; `restic_check.sh`
+runs separately and less frequently (weekly) and offset from the backup time
+so the two don't overlap and fight over the repo lock. Both jobs are live as
+of this writing.
 
 ---
 
@@ -201,16 +211,23 @@ need to `--read-data`-verify 221G nightly).
 
 [#honest-caveats](#honest-caveats)
 
-- kk1's block storage was **not yet resized** as of this writing — the repo
-  will run out of room before the full 221G dataset fits, unless/until a
-  larger OCI block volume is attached. This is a known, deliberately
-  deferred gap, not an oversight.
-- Proxmox/OPNsense/Home Assistant config export (the original purpose of the
-  swearengen script) is **not yet rebuilt** — this runbook only covers the
-  TrueNAS bulk-data path. That's separate follow-up work.
+- **Proxmox/OPNsense/Home Assistant config export** (the original purpose of
+  the swearengen script) is **not yet rebuilt** — this runbook only covers
+  the TrueNAS bulk-data path. Judged low-effort to redo when picked back up,
+  so not currently a priority.
+- **A pre-existing rootfs-style mirror of `swearengen`** (`/etc`, `/root`,
+  live-patch state, SSL cert bundles) was found living inside
+  `important/backup/swearengen/` — origin and freshness unconfirmed as of
+  this writing; may be a stale leftover from an earlier, unrelated backup
+  approach. Not investigated yet; flagged here so it isn't lost track of.
+- **Cron output/alerting is not wired into the existing monitoring stack.**
+  TrueNAS cron jobs email output by default; whether that lands anywhere
+  useful depends on whether system email is configured. No ntfy/Uptime Kuma
+  hook exists yet for backup success/failure — the script's `log()`/`exit 1`
+  pattern is ready for that, but the wiring itself is a later task.
 - Retention values (`7/4/6`) are a starting guess, not derived from any
   actual RPO requirement — revisit once real usage patterns on `important`
-  are observed.
+  are observed over a few months.
 
 ---
 
@@ -218,14 +235,17 @@ need to `--read-data`-verify 221G nightly).
 
 [#quick-reference](#quick-reference)
 
-| Item              | Value                                               |
-| ----------------- | ---------------------------------------------------- |
-| Source            | `truenas` — `/mnt/tank/storage/important` (~221G)    |
-| Repo              | `sftp:aba@10.99.0.1:/data` (kk1, via WireGuard)      |
-| Scripts           | `/mnt/tank/storage/aba/scripts/` (pool, not `/etc`)  |
-| Env file          | `restic.env`                                         |
-| Password file     | `~/.config/restic/password` (chmod 600)              |
-| Cache dir         | `~/.cache/restic` (pool, not boot pool)              |
-| Retention         | 7 daily / 4 weekly / 6 monthly                       |
-| Scheduling        | TrueNAS Cron Job UI (not raw crontab)                |
-| Known gap         | kk1 block storage not yet sized for full dataset     |
+| Item              | Value                                                |
+| ----------------- | ----------------------------------------------------- |
+| Source            | `truenas` — `/mnt/tank/storage/important`             |
+| Repo              | `sftp:aba@10.99.0.1:/data` (kk1, via WireGuard)       |
+| Scripts           | `/mnt/tank/storage/aba/scripts/` (pool, not `/etc`)   |
+| Env file          | `restic.env`                                          |
+| Password file     | `~/.config/restic/password` (chmod 600)               |
+| Cache dir         | `~/.cache/restic` (pool, not boot pool)               |
+| Retention         | 7 daily / 4 weekly / 6 monthly                        |
+| Scheduling        | TrueNAS Cron Job UI — live                            |
+| First backup      | 122.115 GiB scanned, 92.757 GiB stored, 6h11m         |
+| Incremental       | ~16s for a typical daily delta                        |
+| Integrity check   | `restic check --read-data` passed, 0 errors           |
+| Open items        | swearengen rootfs origin unconfirmed; PVE/OPNsense/HA export not rebuilt; no alerting hook yet |
