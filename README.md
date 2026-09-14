@@ -20,6 +20,7 @@ it from nothing.
 ### System Troubleshooting
 | Doc | Covers |
 | --- | --- |
+| [SWEARENGEN-MCE-RAS-2026-09.md](SWEARENGEN-MCE-RAS-2026-09.md) | Swearengen Memory / MCE / RAS Investigation — 2026-09
 | [TRUENAS-NETDATA-NUT-REMOTE-UPS-2026-09.md](TRUENAS-NETDATA-NUT-REMOTE-UPS-2026-09.md) | Netdata’s nut_ups collector was failing against the remote NUT server. Disabled the redundant collector and used Netdata’s working nut collector with the remote UPS endpoint configured directly.
 | [PIHOLE-KUMA-AUTH-OUTAGE.md](PIHOLE-KUMA-AUTH-OUTAGE.md) | Pi-hole v6 session-auth outage — root cause, Push monitor migration, session-leak fix |
 | [SWEARENGEN-VMBR0-INTRA-BRIDGE-FORWARDING-BUG-2026-09.md](SWEARENGEN-VMBR0-INTRA-BRIDGE-FORWARDING-BUG-2026-09.md) | Workaround in place, root cause unresolved. Same-host VM-to-VM TCP flow silently dropped by vmbr0's intra-bridge forwarding for one specific VM pair, despite clean firewall/VLAN/FDB/physical-network state at every layer checked. Fixed by routing the flow through OPNsense instead of the local bridge. |
