@@ -8,6 +8,8 @@ These are working documents, not tutorials. Each one records what was actually
 built, why the approach was chosen, what broke along the way, and how to rebuild
 it from nothing.
 
+**23 runbooks, ~7,900 lines** of production-style documentation.
+
 ---
 
 ## Runbooks
@@ -51,7 +53,7 @@ it from nothing.
 | [TRUENAS-UPS-REPORTING.md](TRUENAS-UPS-REPORTING.md) | Why the TrueNAS reporting page stays blank when NUT runs in netclient mode (NAS-132924) — the charts.d module that assumes a local `upsd`, a config override that fixes it without touching the immutable rootfs, and an init script to survive OS upgrades |
 | [UPS.md](UPS.md) | UPS monitoring via NUT, primary relocated to a dedicated Pi 2B with staggered shutdown ordering across three hosts (TrueNAS first, swearengen last) |
 
-### Experimental / early-stage
+### Additional projects
 | Doc | Covers |
 | --- | --- |
 | [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose.
