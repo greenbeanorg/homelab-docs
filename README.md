@@ -17,6 +17,7 @@ it from nothing.
 ### System Automation
 | Doc | Covers |
 | --- | --- |
+| [IaC-RUNBOOK.md](https://github.com/greenbeanorg/homelab-automation/blob/master/RUNBOOK.md) | A Terraform + Ansible pipeline that provisions a 3-node k3s cluster, a PostgreSQL host, and an Icinga2 monitoring host on a single Proxmox node (garrett), deploys a real Flask + Postgres app to the cluster, exposes it publicly over TLS via a reverse proxy on a separate cloud host, and monitors the whole thing — all from code. |
 | [TERRAFORM-PROXMOX-FIRST-APPLY-2026-09.md](./TERRAFORM-PROXMOX-FIRST-APPLY-2026-09.md) | First Terraform + Proxmox LXC provisioning pass from dority; covers cert/hostname drift and API token permission scoping gotchas |
 
 ### System Troubleshooting
@@ -58,6 +59,7 @@ it from nothing.
 | --- | --- |
 | [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose.
 | [NETBOX-INVENTORY.md](NETBOX-INVENTORY.md) | Netbox python inventory script fed by a simple yaml
+| [Plex VM → LXC + GPU Passthrough](PLEX-LXC-GPU-MIGRATION.md) | Migrating Plex from a VM to an LXC with Intel QuickSync hardware transcoding — BIOS iGPU gotchas, multi-GPU device confusion, LXC/NFS limitations, and a corrupted-database recovery
 | [LAN-DEVICE-WATCHER.md](LAN-DEVICE-WATCHER.md) | A crude Node.js LAN scanner
 
 ---
