@@ -60,7 +60,7 @@ it from nothing.
 | [NETBOX.md](NETBOX.md) | NetBox, PostgreSQL, and Valkey through Docker Compose.
 | [NETBOX-INVENTORY.md](NETBOX-INVENTORY.md) | Netbox python inventory script fed by a simple yaml
 | [Plex VM → LXC + GPU Passthrough](PLEX-LXC-GPU-MIGRATION.md) | Migrating Plex from a VM to an LXC with Intel QuickSync hardware transcoding — BIOS iGPU gotchas, multi-GPU device confusion, LXC/NFS limitations, and a corrupted-database recovery
-| [LAN-DEVICE-WATCHER.md](LAN-DEVICE-WATCHER.md) | A crude Node.js LAN scanner
+| [CPU-GOVERNOR-POWERSAVE.md](CPU-GOVERNOR-POWERSAVE.md) | CPU Governor: Enforcing powersave Across Proxmox Hosts
 
 ---
 
