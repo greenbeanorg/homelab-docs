@@ -1,12 +1,16 @@
-# swearengen vmbr0: Same-Host Intra-Bridge Forwarding Bug (ellsworth ↔ nuttal)
+# swearengen vmbr0: "Intra-Bridge Forwarding Bug" — Actually a Guest /32 Netmask
 
-**Status: workaround in place; root cause unresolved.** A specific VM-to-VM TCP
-flow on `swearengen`'s `vmbr0` reliably fails when both VMs share the host and
-the traffic never leaves the bridge — while every path that transits a physical
-NIC (through OPNsense, from another host, from a VM on a different Proxmox
-node) works without exception. This document records the elimination process
-in full because the failure signature is unusual enough to be worth recognizing
-quickly next time, even though the actual mechanism was never found.
+**Status: resolved.** This runbook originally concluded that `vmbr0` on
+`swearengen` had a kernel/QEMU/vhost-level forwarding bug affecting one
+same-host VM pair. **That conclusion was wrong.** The bridge was never at
+fault. `nuttal` (HAOS) had its address configured with a `/32` prefix, so it
+treated same-subnet peers as off-link and sent every reply to the gateway
+instead of across the bridge. The forward path always worked; only the return
+path was asymmetric.
+
+The original elimination process is preserved below, because the negative
+results are still valid and the *misreading* of the decisive evidence is the
+most useful thing in this document.
 
 ---
 
@@ -18,12 +22,17 @@ quickly next time, even though the actual mechanism was never found.
   VLAN-aware bridge (`vmbr0`), same VLAN, same subnet.
 - ICMP and ARP between the two are always clean — low latency, zero loss,
   correct MAC resolution every time.
-- TCP is where it breaks, and only *some* TCP flows to `nuttal:8123`. Every
-  other path to the same service — from OPNsense, from a third host on the
-  same VLAN via the physical switch, from a VM on a different Proxmox node —
-  succeeds 100% of the time, every test, across two days of testing.
-- Intermittent in the sense that a given moment might work, but the specific
-  ellsworth→nuttal same-host path never became reliable.
+- TCP is where it breaks. Every other path to the same service — from
+  OPNsense, from a third host on the same VLAN via the physical switch, from
+  a VM on a different Proxmox node — succeeds 100% of the time.
+
+⚠️ **The ICMP/TCP split was the tell, and it was misread as "intermittent."**
+ICMP tolerates an asymmetric return path: the reply reaches the source
+regardless of which way it travelled. TCP does not, because the stateful
+firewall in the middle of the return path never saw the SYN and therefore
+drops the SYN-ACK as out-of-state. Any time ping works and TCP does not
+between two hosts on the same subnet, suspect asymmetric routing before
+suspecting the bridge.
 
 ---
 
@@ -40,136 +49,179 @@ quickly next time, even though the actual mechanism was never found.
 
 ---
 
-## 3. Diagnostic Path (condensed)
+## 3. Root Cause
 
-The investigation moved outward from the application layer to the packet
-layer, then across every filtering/forwarding subsystem on both the source and
-destination host, then out to the physical network, and back. In rough order:
+**`nuttal`'s interface was configured as `10.x.x.30/32`.**
 
-1. **HTTP/TCP layer** — `curl` to `nuttal:8123` from `ellsworth` timed out;
-   from every other host, it succeeded and returned a normal 200/405 from HA.
-2. **Firewall stacks on both VMs and the host** — checked and cleared, in this
-   order: Proxmox per-VM firewall (`firewall=1` / `fwbr`/`fwpr` chains),
-   `firewalld`'s native nftables ruleset on `ellsworth`, the host's own
-   `iptables`/`ip6tables` (`FORWARD` policy was `ACCEPT`, no relevant rules),
-   Docker's `DOCKER-FORWARD`/`DOCKER-USER` chains, native `nftables` on
-   `swearengen` (empty ruleset — `proxmox-firewall.service` had nothing
-   configured), and `ebtables` (empty on both hosts).
-3. **Bridge-layer mechanics** — checked `tc` qdiscs/filters on both taps
-   (clean, default `fq_codel`), port isolation flags (`isolated off` on both),
-   and VLAN membership/PVID on both taps (`bridge vlan show` — identical,
-   correct config on `tap101i0` and `tap201i0`).
-4. **Offload/checksum** — `rx-checksumming: off [fixed]` / `tx-checksumming`
-   variants were identical on both taps and `vmbr0`; forcing `tx off` on
-   either tap made no difference.
-5. **MAC/FDB state** — checked for a duplicate MAC across VMs (none), then
-   watched `bridge fdb show` continuously across multiple curl-failure windows
-   for both the source and — critically — the **destination** MAC (forwarding
-   is decided by destination MAC, not source; this was an early mistake in
-   the investigation that cost significant time). FDB entries for both VMs
-   stayed correctly pinned to their own taps through every window captured,
-   including windows where curls from other vantage points were succeeding
-   and failing normally.
-6. **Physical network** — pulled the MikroTik's own FDB entry for both MACs
-   (learned correctly on the expected trunk port), checked the access switch
-   (TP-Link TL-SG108E) for STP/loop prevention (Loop Prevention was enabled;
-   port statistics showed no anomalies), and physically unplugged every
-   non-essential cable on that switch one at a time while retesting — no
-   change.
-7. **Direct packet capture, both taps simultaneously** — this was the
-   decisive test, repeated successfully on two separate days with two
-   different MACs (post NIC-rebuild) on `ellsworth`. `tcpdump` on `tap201i0`
-   (nuttal's tap) shows the SYN arrive and the SYN-ACK generated and
-   retransmitted correctly, every time. Simultaneous `tcpdump` on `tap101i0`
-   (ellsworth's tap) never shows that SYN-ACK arrive — not once, across
-   dozens of retransmissions. The reply is generated correctly and then
-   vanishes somewhere between the two taps on the same bridge.
-8. **Multiqueue** — checked as a possible flow-hashing explanation; neither
-   VM's `net0` specifies `queues=`, so both are single-queue. Ruled out.
+A `/32` prefix means the host has no on-link subnet. Every destination —
+including `10.x.x.111` on the same bridge, two ports away — is off-link and
+resolves to the default gateway. So:
 
-### Ruled out (confirmed, not suspected)
-Docker iptables/nftables · Proxmox per-VM firewall · global host iptables
-FORWARD · native nftables (`proxmox-firewall.service`) · ebtables · `tc`
-qdiscs/filters · port isolation · VLAN tagging/PVID mismatch · checksum
-offload · MAC address collision · a physical network loop · FDB
-relearning/aging on either endpoint's MAC · multiqueue flow hashing
+- `ellsworth → nuttal` traffic crossed `vmbr0` directly and arrived normally.
+- `nuttal → ellsworth` replies were addressed to the **gateway's** MAC, left
+  the host via `enp4s0f0`, were routed by OPNsense, and came back down with
+  TTL decremented 64 → 63.
+
+For ICMP that still completes, so ping "worked." For TCP to 8123, OPNsense
+never saw the SYN (it went direct across the bridge), so the SYN-ACK arriving
+from `nuttal` was out-of-state and dropped. The handshake never completed and
+retransmitted until timeout.
+
+The HAOS login banner prints the prefix on every SSH connection
+(`IPv4 addresses for enp6s18: 10.x.x.30/32`) — the answer was on screen for the
+entire investigation.
+
+### How the original diagnosis went wrong
+
+Step 7 of the original investigation ran `tcpdump` on both taps
+simultaneously and observed: SYN-ACK generated and retransmitted on the
+destination's tap, never arriving on the source's tap. That observation was
+**correct**. The inference — that the frame vanished inside the bridge — was
+not. The SYN-ACK left via the uplink, which was the one interface never
+captured. Every check was aimed at the two taps, so the traffic that proved
+the case was outside the field of view the whole time.
+
+⚠️ **Methodological lesson: when both endpoints look clean, capture the
+interface the traffic should *not* be using.** A dual-tap capture can only
+show presence and absence on those two ports; it cannot distinguish "dropped
+by the bridge" from "correctly forwarded somewhere else." Adding
+`tcpdump -e` on the physical uplink settles it in one command, because the
+destination MAC and the TTL both identify the path immediately.
 
 ---
 
-## 4. Root Cause
+## 4. Diagnostic Path
 
-**Not identified.** Every layer with standard visibility (netfilter in all its
-forms, the bridge's own filtering and VLAN state, tc, offload flags, FDB
-state, and the physical network) was checked and cleared, on two separate
-days, with two different source MACs. The one fact that survived every test:
-the SYN-ACK is correctly generated on the destination's tap and never arrives
-on the source's tap, despite both being ports on the same Linux bridge with
-no filtering rule touching either of them.
+### 4.1 The capture that settled it
 
-This points at something below the layers `tcpdump`, `bridge`, `tc`, `nft`,
-and `ethtool` can see — most likely a kernel or QEMU/vhost virtio-net bridging
-bug specific to this host's kernel/qemu-server version combination. Root-causing
-further would require kernel-level tracing (`ftrace`/`perf`) or a kernel/qemu
-version bisect — a materially different order of effort than troubleshooting,
-and not undertaken here.
-
----
-
-## 5. Workaround Applied
-
-Force the affected flow through a physical NIC instead of the local bridge
-hairpin, by adding a more-specific host route on `ellsworth` that sends
-`nuttal`-bound traffic to OPNsense instead of resolving `nuttal`'s MAC
-directly:
+With the workaround route removed on `ellsworth` and a continuous ping
+running:
 
 ```bash
-sudo ip route add 10.x.x.30/32 via 10.x.x.1 dev ens18
+bridge monitor fdb &
+tcpdump -i enp4s0f0 -e -n -vv 'vlan 20 and host 10.x.x.30'
 ```
 
-OPNsense hairpins the traffic back onto the same VLAN to reach `nuttal`. Every
-OPNsense-routed test succeeded throughout the investigation, so this
-reproduces a known-good path rather than introducing a new untested one.
+Echo *requests* never appeared on the uplink — they crossed the bridge
+correctly. Echo *replies* did appear, addressed to the gateway MAC with
+`ttl 64`, immediately followed by the same packet returning from OPNsense with
+`ttl 63`. The TCP SYN-ACK from `nuttal:8123` appeared on the uplink too,
+retransmitted ~8s later, with no corresponding return frame — OPNsense
+dropping it as out-of-state.
 
-**Made persistent** via the NetworkManager connection profile rather than a
-one-off `ip route` command, so it survives reboots:
+`-e` (link-layer headers) is essential. Without it, the destination MAC is
+invisible and the capture looks like ordinary traffic.
+
+### 4.2 Bridge state verified clean first
+
+Before the uplink capture, the bridge itself was re-verified end to end:
 
 ```bash
-nmcli connection modify "Wired connection" +ipv4.routes "10.x.x.30/32 10.x.x.1"
+qm config 101 | grep -E '^net'          # tag=20, no firewall=1
+qm config 201 | grep -E '^net'          # tag=20, no firewall=1
+ip -br link show master vmbr0           # both taps direct on vmbr0, no fwbr/fwpr
+bridge -d link show dev tap101i0        # isolated off, flood on, learning on
+bridge vlan show                        # both taps: 20 PVID Egress Untagged
+bridge fdb show br vmbr0                # both MACs on own tap, vlan 20
+sysctl net.bridge.bridge-nf-call-iptables   # 0
+```
+
+All clean. That result is what forced the question "if the bridge is correct,
+where is the frame actually going?" — which is the question that should have
+been asked two days earlier.
+
+⚠️ Note that `fwpr1000p0` and `fwpr102p0` on this host *do* carry the VLAN tag
+on the fwpr leg while their taps sit on VLAN 1 — the documented `firewall=1`
+gotcha is real and live on `swearengen`, just not on VMs 101/201. Confirming a
+known gotcha applies elsewhere is not evidence it applies here.
+
+### 4.3 Previously ruled out (still valid)
+
+Docker iptables/nftables · Proxmox per-VM firewall (`firewall=1` / fwbr/fwpr
+chains) · global host iptables FORWARD · native nftables
+(`proxmox-firewall.service`) · ebtables · `tc` qdiscs/filters · bridge port
+isolation · VLAN tagging/PVID mismatch · bridge `flood`/`learning` flags ·
+checksum offload · MAC address collision · a physical network loop · FDB
+relearning/aging · multiqueue flow hashing · `bridge-nf-call-iptables`
+
+All of these were correctly cleared. None of them were ever the problem, and
+none of them could have been — the failure was in guest IP configuration, a
+layer above everything in this list.
+
+---
+
+## 5. Fix
+
+On `nuttal`, via the `ha` CLI (Proxmox console → `login`, or the SSH add-on
+with Protection mode off):
+
+```bash
+ha network info
+ha network update enp6s18 \
+  --ipv4-method static \
+  --ipv4-address 10.x.x.30/24 \
+  --ipv4-gateway 10.x.x.1 \
+  --ipv4-nameserver 10.x.x.250 \
+  --ipv4-nameserver 10.x.x.249
+```
+
+⚠️ The "Advanced SSH & Web Terminal" add-on drops you into a **container**,
+not the HAOS host. `ip addr` there shows the Supervisor's internal Docker
+network (`172.30.x.x`) and tells you nothing about the real interface. Use the
+banner, `ha network info`, or the Proxmox console.
+
+### Workaround removed
+
+The original host route on `ellsworth` is no longer needed and has been
+removed, including the persistent NetworkManager form:
+
+```bash
+nmcli connection modify "Wired connection" -ipv4.routes "10.x.x.30/32 10.x.x.1"
 nmcli connection up "Wired connection"
 ```
 
----
-
-## 6. Outstanding / Follow-up
-
-- [ ] Revisit if `swearengen`'s kernel or `qemu-server` package is ever
-      upgraded — this may be a version-specific virtio-net/bridge bug that
-      changes behavior on update.
-- [ ] Watch for the same symptom on any *other* same-host VM pair on
-      `vmbr0`. If it recurs elsewhere, that's strong evidence this is
-      systemic to the bridge/host rather than specific to ellsworth/nuttal,
-      and worth escalating to kernel-level tracing.
-- [ ] If pursued further: `perf trace` or `ftrace` on the bridge forwarding
-      path during a live failure, or a controlled kernel/qemu-server version
-      bisect.
-- [ ] Update [WIREGUARD-TROUBLESHOOTING.md](WIREGUARD-TROUBLESHOOTING.md) /
-      VLAN docs with a cross-reference once VLAN 10 MGMT work is complete, in
-      case the same symptom shape appears there.
+⚠️ **Why the workaround "worked" is worth understanding.** Forcing
+`ellsworth`'s outbound traffic through OPNsense made the path *symmetric* —
+both directions then transited the firewall, so state matched and TCP
+completed. It did not bypass a bridge fault; it compensated for a guest
+misconfiguration by making both halves equally wrong. A workaround that
+succeeds for a reason you have not identified is not confirmation of the
+diagnosis behind it.
 
 ---
 
-## 7. Known Limitations
+## 6. Verification
 
-- The fix is a routing workaround, not a resolution — the underlying bridge
-  behavior is still present and unexplained.
-- The workaround is host-route-specific (`ellsworth` → `nuttal` only). If
-  other same-host VM pairs hit the same bug, each would need its own route,
-  which does not scale cleanly and is a sign this should eventually be
-  root-caused properly rather than patched per-pair.
-- The static route depends on OPNsense correctly hairpinning intra-VLAN
-  traffic indefinitely; if that behavior ever changes (a stricter firewall
-  rule, an OPNsense upgrade that disables reflection), the workaround breaks
-  silently and would look identical to the original bug reappearing.
+1. On `ellsworth`, confirm no host route to `nuttal` remains (`ip route get`).
+2. `ping` `nuttal` and capture on `enp4s0f0` — replies should no longer appear
+   on the uplink at all.
+3. `curl -I http://10.x.x.30:8123` from `ellsworth` — should return promptly.
+4. Confirm `ellsworth`'s own prefix is a `/24` (`ip -4 addr show`); the same
+   misconfiguration class should be ruled out on both ends.
+
+---
+
+## 7. Outstanding / Follow-up
+
+- [ ] Audit prefix length on every static-addressed guest in the fleet — a
+      `/32` survives reboots and package updates silently, and nothing in the
+      monitoring stack currently detects it.
+- [ ] Add a prefix-length assertion to `inventory.yaml`-driven tooling so a
+      mismatch between declared and actual netmask is caught automatically.
+- [ ] Re-check any other host that received a static address during the
+      flat-subnet → VLAN renumber, which is when this was most likely
+      introduced.
+
+---
+
+## 8. Known Limitations
+
+- The root cause was introduced by hand during static addressing and is not
+  prevented by anything structural. Until the inventory tooling asserts prefix
+  length, the same mistake can recur on any new guest.
+- HAOS network configuration is only reachable via `ha network` or the
+  Supervisor UI; it is not visible in the Proxmox guest config, so a host-side
+  audit will not catch it.
 
 ---
 
@@ -177,16 +229,16 @@ nmcli connection up "Wired connection"
 
 | Check | Command |
 | --- | --- |
+| **Same-subnet peers unreachable — check this first** | `ip -4 addr show` on both ends; confirm prefix is `/24`, not `/32` |
+| Identify asymmetric return path | `tcpdump -i <uplink> -e -n host <peer>` — look for gateway MAC + TTL decrement |
+| HAOS interface config (host, not add-on container) | `ha network info` |
+| Set HAOS static address correctly | `ha network update <iface> --ipv4-method static --ipv4-address <ip>/24 --ipv4-gateway <gw>` |
 | Watch bridge FDB for a MAC live | `watch -n 0.2 'bridge fdb show br vmbr0 \| grep <mac>'` |
-| Capture both sides of a suspected hairpin drop | `tcpdump -i <tapA> -n host <dest>` / `tcpdump -i <tapB> -n host <src>` (run simultaneously) |
-| Check VLAN-aware bridge port config | `bridge -d link show dev <tap>` |
+| Watch FDB port moves in real time | `bridge monitor fdb` |
+| Check VLAN-aware bridge port flags | `bridge -d link show dev <tap>` |
 | Check VLAN membership per tap | `bridge vlan show` |
-| Check tc state on a tap | `tc qdisc show dev <tap>` / `tc filter show dev <tap>` |
-| Check native nftables (post-PVE-9) | `nft list ruleset` |
+| Check which interfaces are really on the bridge | `ip -br link show master vmbr0` |
 | Check Proxmox per-VM firewall | `cat /etc/pve/firewall/<vmid>.fw` |
 | Check bridge-nf-iptables interaction | `sysctl net.bridge.bridge-nf-call-iptables` |
-| Force traffic off the local bridge, via router | `ip route add <dest>/32 via <gateway> dev <iface>` |
-| Persist a host route (NetworkManager) | `nmcli connection modify "<conn>" +ipv4.routes "<dest>/32 <gateway>"` |
 
 ---
-
