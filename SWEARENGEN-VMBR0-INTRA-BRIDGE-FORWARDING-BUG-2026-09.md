@@ -190,14 +190,49 @@ diagnosis behind it.
 
 ---
 
-## 6. Verification
+## 6. Verification (confirmed)
 
-1. On `ellsworth`, confirm no host route to `nuttal` remains (`ip route get`).
-2. `ping` `nuttal` and capture on `enp4s0f0` — replies should no longer appear
-   on the uplink at all.
-3. `curl -I http://10.x.x.30:8123` from `ellsworth` — should return promptly.
-4. Confirm `ellsworth`'s own prefix is a `/24` (`ip -4 addr show`); the same
-   misconfiguration class should be ruled out on both ends.
+All four checks passed after the prefix was corrected.
+
+1. **Guest config** — `ha network info` reports `10.x.x.30/24` on `enp6s18`,
+   with gateway and both nameservers intact. The SSH session survived the
+   change; no reboot was required for the new prefix to take effect.
+2. **Application layer** — `curl -sI -m 5 http://10.x.x.30:8123` from
+   `ellsworth` returns `HTTP/1.1 405 Method Not Allowed` with `Allow: GET`
+   immediately. That is HA's frontend correctly rejecting `HEAD` — the
+   service answering at all is the result that matters, since this exact
+   request previously hung until timeout.
+3. **Packet path** — `tcpdump -i enp4s0f0 -e -n 'vlan 20 and host 10.x.x.30'`
+   on `swearengen`, run against 31 consecutive pings from `ellsworth`,
+   captured **zero** frames between the two VMs. Traffic now stays on the
+   bridge. The only VLAN 20 traffic still crossing the uplink is `nuttal` to a
+   peer on VLAN 30, which is genuinely off-subnet and correctly routed. Before
+   the fix, every echo reply appeared here twice — once outbound to the
+   gateway MAC at TTL 64, once returning at TTL 63.
+4. **Source-side prefix** — `ellsworth` confirmed at `10.x.x.111/24`. The
+   misconfiguration was on `nuttal` only.
+
+### Workaround removal confirmed
+
+The persistent NetworkManager route was still present in the connection
+profile even though it had been removed from the running table, and would have
+returned on the next connection reload:
+
+```bash
+nmcli -g ipv4.routes connection show "Wired connection"
+# 10.x.x.30/32 10.x.x.1
+```
+
+After removal and `nmcli connection up`, the profile returns empty and
+`ip route get 10.x.x.30` resolves on-link via `ens18` with no `via`.
+
+⚠️ `nmcli connection modify -ipv4.routes "<route>"` silently no-ops if the
+route string does not match the stored entry exactly. Always re-query
+`nmcli -g ipv4.routes` afterwards rather than assuming removal succeeded.
+
+**Nothing on `swearengen` was modified at any point.** The host, the bridge,
+and both VM network configs are as they were throughout the original
+investigation.
 
 ---
 
@@ -240,5 +275,6 @@ diagnosis behind it.
 | Check which interfaces are really on the bridge | `ip -br link show master vmbr0` |
 | Check Proxmox per-VM firewall | `cat /etc/pve/firewall/<vmid>.fw` |
 | Check bridge-nf-iptables interaction | `sysctl net.bridge.bridge-nf-call-iptables` |
+| Verify an nmcli route was actually removed | `nmcli -g ipv4.routes connection show "<conn>"` (must be re-queried — removal no-ops silently on a string mismatch) |
 
 ---
