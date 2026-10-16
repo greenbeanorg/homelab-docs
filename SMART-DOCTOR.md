@@ -85,6 +85,38 @@ flagged by `diagnose()` and not a concern on their own. Reallocated /
 pending / offline-uncorrectable counts were all 0 across the fleet at
 this baseline.
 
+## Baseline reference (2026-10-16, raw `smartctl -x` pull)
+
+Second data point, about 103 days of 24/7 runtime after the first raw
+SMART review (2026-07-05, 63,531 / 63,531 / 63,532 / 63,549 POH).
+
+| Attribute | sdb `JEG8DNZN` | sdc `2YJH8MHD` | sdd `JEG8M03N` | sde `2YJ0VL0D` |
+|---|---|---|---|---|
+| Power-on hours (9) | 66,009 | 66,009 | 66,009 | 66,026 |
+| Reallocated (5) / Pending (197) / Offline unc. (198) | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| UDMA CRC errors (199) | 0 | 0 | 0 | 0 |
+| Helium level (22) | 100 | 100 | 100 | 100 |
+| Load cycle count (193) | 8,944 | 9,000 | 8,849 | 9,029 |
+| Temperature now / lifetime max | 38 / 48°C | 39 / 49°C | 40 / 49°C | 37 / 45°C |
+| Read Recovery Attempts (devstat) | 633 | 2,694 | 808 | 24 |
+| Reported Uncorrectable Errors (devstat) | 0 | 0 | 0 | 0 |
+| Last extended test (lifetime hr) | PASS @ 64,756 | PASS @ 64,779 | PASS @ 64,801 | PASS @ 64,839 |
+
+Verdict: all four GOOD, no movement in any failure-predictor attribute
+since July. Error logs and Pending Defects logs are empty on all four.
+Temperatures run 1–2°C warmer than the August baseline; sdd is the
+warmest slot (40–41°C), well inside the 65°C spec.
+
+**Correction to the 2026-08-28 baseline:** the raw device-statistics
+log does not match the "4 / 4" Reported Uncorrectable / Read Recovery
+values the dashboard showed. Raw values today are 0 Reported
+Uncorrectable on every drive, and Read Recovery Attempts differ widely
+per drive (above). The script is likely reading a different field for
+those two counters. Compare future pulls against this table, not the
+August dashboard numbers. Read Recovery Attempts on sdc is the counter
+to watch: a fast climb there would make sdc the most likely first
+failure.
+
 ## Notes
 
 - Only run one LONG test at a time — the script warns but does not
