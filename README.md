@@ -8,7 +8,7 @@ These are working documents, not tutorials. Each one records what was actually
 built, why the approach was chosen, what broke along the way, and how to rebuild
 it from nothing.
 
-**23 runbooks, ~7,900 lines** of production-style documentation.
+**28 runbooks, ~8,800 lines** of production-style documentation.
 
 ---
 
@@ -53,6 +53,12 @@ it from nothing.
 | [SMART-DOCTOR.md](SMART-DOCTOR.md) | Using smartmontools to establish a base health for the 4 x 10TB NAS drives.
 | [TRUENAS-UPS-REPORTING.md](TRUENAS-UPS-REPORTING.md) | Why the TrueNAS reporting page stays blank when NUT runs in netclient mode (NAS-132924) — the charts.d module that assumes a local `upsd`, a config override that fixes it without touching the immutable rootfs, and an init script to survive OS upgrades |
 | [UPS.md](UPS.md) | UPS monitoring via NUT, primary relocated to a dedicated Pi 2B with staggered shutdown ordering across three hosts (TrueNAS first, swearengen last) |
+
+### Labs
+| Doc | Covers |
+| --- | --- |
+| [KEA-DHCP-LAB.md](KEA-DHCP-LAB.md) | ISP-style relayed DHCPv4 — a central Kea 3.0 LTS server on Rocky Linux 9 (SELinux enforcing, firewalld) that never serves its own link, reached only through an OPNsense relay adding giaddr and option 82. Circuit-id reservations, PostgreSQL lease backend, the Kea HTTP API with `lease_cmds` / `stat_cmds`, and a `perfdhcp` load test that found saturation at ~2,700 leases/s and proved the limit was CPU, not queue depth — plus an honest write-up of the outage a passing config test caused |
+| [VSPHERE-NESTED-LAB.md](VSPHERE-NESTED-LAB.md) | **In progress.** Nested vSphere 8 on Proxmox — virtual hardware ESXi actually has drivers for (why the installer saw no disk on PVSCSI), CPU-model matching for vMotion across mismatched hosts, VCSA prerequisites, and an evaluation-only cluster build |
 
 ### Additional projects
 | Doc | Covers |
