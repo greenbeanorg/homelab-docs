@@ -80,13 +80,19 @@ Sanitization is enforced by a pre-commit hook rather than by memory:
 
 | Rule |
 | --- |
-| Internal addresses masked as `10.x.x.N` |
+| Internal RFC1918 addresses are published as-is — the plan is `10.79.<VLAN>.0/24`, so the third octet is the VLAN |
+| Public IPs, WAN / ISP / ONT details never committed |
 | Secrets referenced as `${VAR}` or `<placeholder>`, never literals |
-| WAN / ISP / ONT / MAC details never committed |
+| MAC addresses never committed |
+
+Runbooks written before October 2026 still use the older masked form
+(`10.x.x.N`); they're being converted to real addresses as they're revised.
 
 The hook lives at [`scripts/pre-commit`](scripts/pre-commit) and blocks commits
-containing unmasked addresses, hardcoded credentials, private keys, tokens, MAC
-addresses, or staged `.env` files. Install it after cloning — git hooks aren't
+containing hardcoded credentials, private keys, tokens, MAC addresses, or staged
+`.env` files. Private addresses are allowed in this repo by
+[`.sanitizerc`](.sanitizerc) (`ALLOW_PRIVATE_IPS=1`); public-IP and ISP hygiene
+is by review, not by the hook. Install it after cloning — git hooks aren't
 carried by a clone:
 
 ```bash
