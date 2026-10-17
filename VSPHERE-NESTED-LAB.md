@@ -142,22 +142,6 @@ installs.
 
 ---
 
-## 5. Interview notes
-
-- **Nested hardware choices:** "Most of the work in nested ESXi is picking
-  virtual hardware ESXi has a driver for. The installer showed no disks
-  because QEMU's PVSCSI emulation isn't detected; moving the disk to SATA,
-  on the AHCI driver ESXi ships, fixed it."
-- **vMotion across mismatched hosts:** "My two hosts are different Intel
-  generations, so rather than rely on EVC in a nested setup, I gave both
-  ESXi VMs an identical virtual CPU model. Same problem EVC solves, solved
-  one layer down."
-- **What's changed since my era:** vCenter is an appliance only now (no
-  Windows vCenter), vLCM replaces VUM baselines with desired-state images,
-  and licensing moved to Broadcom's VCF subscription bundles.
-
----
-
 ## Quick reference
 
 | | |

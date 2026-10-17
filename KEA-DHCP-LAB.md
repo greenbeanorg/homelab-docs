@@ -1,10 +1,10 @@
 # Kea DHCP Lab — Relayed DHCPv4 on Rocky Linux 9
 
-**Status:** COMPLETE — core lab (Steps 1–6) built and verified 2026-10-17; stretch goals open, see [§12](#12-still-ahead)
+**Status:** COMPLETE — core lab (Steps 1–6) built and verified 2026-10-17; stretch goals open, see [§11](#11-still-ahead)
 **Built:** 2026-10-16 → 2026-10-17
 **Hosts:** `kea1` (VM 950, Rocky Linux 9.8, swearengen), `client1` (VM 951, Rocky Linux 9.8, swearengen), OPNsense on `wu` as relay agent, `dority` as load generator
 **Stack:** ISC Kea 3.0.4 (LTS), PostgreSQL 16 (AppStream), OpenBSD `dhcrelay` on OPNsense, firewalld, SELinux enforcing
-**Purpose:** Interview prep for an ISP Core Platforms role where ISP-scale DHCP was the identified gap. Lab only — the test VLAN carries no real clients.
+**Purpose:** Hands-on ISP-scale DHCP: central server, relayed access segments, subscriber identification by circuit, and capacity measured rather than assumed. Lab only — the test VLAN carries no real clients.
 
 An ISP-style DHCPv4 build: a central Kea server that never serves its own link,
 reached only through a relay that stamps every request with `giaddr` and option 82.
@@ -260,7 +260,7 @@ sudo ss -ulnp | grep ':67'                          # 10.79.20.70:67 only
 **SELinux finding:** the ISC binary is labelled `bin_t` and runs as
 `unconfined_service_t` — no policy confines third-party Kea on EL9. PostgreSQL
 from AppStream, by contrast, runs confined as `postgresql_t`. No AVC denials at
-any point. Confining Kea is an open item ([§12](#12-still-ahead)).
+any point. Confining Kea is an open item ([§11](#11-still-ahead)).
 
 ### Checkpoint 2 ✅ — config valid, service active, bound to one address, no AVCs
 
@@ -642,40 +642,7 @@ RHEL 10 drops ISC dhcpd and ships Kea, so EL estates are moving to Kea regardles
 
 ---
 
-## 11. Interview notes
-
-- **Topology.** "The subscriber segment has no DHCP server at all; the relay is
-  the only path, so every packet the server sees arrives with a giaddr and relay
-  info. A request that didn't come through a relay matches no subnet and is dropped."
-- **Return path.** "The server replies to giaddr, not to the sender, so the return
-  path is a routing and firewall question. Renewals skip the relay and unicast to
-  the server ID, so they need a policy too."
-- **Firewall.** "Source-based firewalld zone: the relays and subscriber prefixes
-  allowed to reach port 67 are listed in one place."
-- **Reservations.** "Keyed on circuit-id, outside the pool — the address follows
-  the port, not the CPE. Adding the reservation NAK'd the existing lease and the
-  client re-ran DORA onto it. Extended info means one lease lookup returns the circuit."
-- **EL discipline.** "Rocky 9, SELinux enforcing, firewalld trimmed to ssh. ISC's
-  Kea runs unconfined because no policy covers it; I noted that rather than pretend."
-- **Version awareness.** "Kea 3.0 LTS. The Control Agent is gone in 3.2, so the API
-  is on the daemon's own authenticated socket, and database backends are now hooks —
-  which `-t` doesn't catch."
-- **API security.** "Open-source Kea has no per-command authorization, so read-only
-  has to be enforced by the client allowlist and network scoping."
-- **Change management.** "A config passed validation and still took the service
-  down. I restored from a known-good copy first, then redid the change with jq,
-  validated the candidate, swapped it in and checked the service."
-- **Load test.** "~1,000 clean exchanges/s, saturation at ~2,700/s on 2 vCPUs.
-  Counters at each layer put the loss in Kea's internal queue. A deeper queue gave
-  4× latency and no throughput — CPU-bound. Fix with cores or scale-out, not buffers.
-  At 1,000/s, 100,000 subscribers returning at once need ~100 seconds, before
-  client backoff. Size for the reconnect storm."
-- **Prediction vs. evidence.** "I predicted the relay's source address; the capture
-  disagreed; I fixed the rule to match the wire."
-
----
-
-## 12. Still ahead
+## 11. Still ahead
 
 - **MCP server** (read-only `lease_lookup`, `pool_utilization`, `kea_health`)
   against the 5a API — needs the HTTP socket rebound from loopback to
