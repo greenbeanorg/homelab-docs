@@ -1,0 +1,4 @@
+# homelab-docs sanitizer profile — see scripts/pre-commit
+# Internal RFC1918 addresses (10.x, 192.168.x) are published as-is for readability.
+# The hook still blocks secrets, keys, tokens, MAC addresses and staged .env files.
+ALLOW_PRIVATE_IPS=1
