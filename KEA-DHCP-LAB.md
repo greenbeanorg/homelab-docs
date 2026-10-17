@@ -62,14 +62,17 @@ client1 → tap951i0 → swearengen vmbr0 → enp4s0f0 → TL-SG108E (ports 1–
 
 | Item | Value |
 |---|---|
-| Test VLAN | 61 `DHCPTEST`, `10.x.x.0/24`; relay/gateway `10.x.x.1` on OPNsense (`opt7` / device `vlan07`) |
-| `kea1` | VM 950, SERVERS (VLAN 20), static `10.x.x.70/24`, user `aba` |
-| `client1` | VM 951, VLAN 61, DHCP — dynamic `10.x.x.100`, then reserved `10.x.x.50` |
+| Test VLAN | 61 `DHCPTEST`, `10.79.61.0/24`; relay/gateway `10.79.61.1` on OPNsense (`opt7` / device `vlan07`) |
+| `kea1` | VM 950, SERVERS (VLAN 20), static `10.79.20.70/24`, user `aba` |
+| `client1` | VM 951, VLAN 61, DHCP — dynamic `10.79.61.100`, then reserved `10.79.61.50` |
 | Lab IP block | SERVERS `.70–.79` (`kea1` = .70, `.71` held for `kea2`). `.40`, `.50`, `.60–.62` belong to the k3s lab |
 | Dynamic pool (VLAN 61) | `.100 – .199` |
 | Circuit reservation | `.50` (outside the pool) |
-| Load-test subnet | `100.64.0.0/22` (CGNAT space), selected by relay address `dority` = `10.x.x.140` |
-| Resolvers handed out | `10.x.x.250`, `10.x.x.249` (Pi-holes) |
+| Load-test subnet | `100.64.0.0/22` (CGNAT space), selected by relay address `dority` = `10.79.20.140` |
+| Resolvers handed out | `10.79.10.250`, `10.79.10.249` (Pi-holes, MGMT VLAN 10) |
+
+Addressing convention across the lab: `10.79.<VLAN>.0/24`, gateway `.1` on
+OPNsense — so the third octet tells you the VLAN at a glance.
 
 ---
 
@@ -125,7 +128,7 @@ step was initially missed — see [§8.1](#81-vlan-61-dropped-by-the-tl-sg108e).
 1. Interfaces → Devices → VLAN: parent `vtnet0`, tag `61`, device `vlan07`
    (`vlan01`–`vlan06` were taken), description `DHCPTEST`.
 2. Interfaces → Assignments: add as `DHCPTEST` (`opt7`).
-3. Enable, Static IPv4 `10.x.x.1/24`, no upstream gateway.
+3. Enable, Static IPv4 `10.79.61.1/24`, no upstream gateway.
 4. **Not** selected under Kea DHCP → Settings → Interfaces; no subnet defined.
 
 ```sh
@@ -146,8 +149,8 @@ qm set 950 --scsi0 local-lvm:0,import-from=/root/Rocky-9-GenericCloud-Base.lates
 qm disk resize 950 scsi0 20G
 qm set 950 --ide2 local-lvm:cloudinit --boot order=scsi0 --serial0 socket --vga serial0
 qm set 950 --ciuser aba --sshkeys /root/<pubkey-file> --cipassword '<console-password>' \
-  --ipconfig0 ip=10.x.x.70/24,gw=10.x.x.1 \
-  --nameserver "10.x.x.250 10.x.x.249" --searchdomain greenbean.org
+  --ipconfig0 ip=10.79.20.70/24,gw=10.79.20.1 \
+  --nameserver "10.79.10.250 10.79.10.249" --searchdomain greenbean.org
 qm start 950
 ```
 
@@ -160,8 +163,8 @@ sudo hostnamectl set-hostname kea1.greenbean.org
 echo 'network: {config: disabled}' | sudo tee /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
 sudo nmcli connection migrate "System eth0"
 sudo nmcli con mod "System eth0" connection.id servers0
-sudo nmcli con mod servers0 ipv4.method manual ipv4.addresses 10.x.x.70/24 \
-  ipv4.gateway 10.x.x.1 ipv4.dns "10.x.x.250 10.x.x.249" ipv4.dns-search greenbean.org
+sudo nmcli con mod servers0 ipv4.method manual ipv4.addresses 10.79.20.70/24 \
+  ipv4.gateway 10.79.20.1 ipv4.dns "10.79.10.250 10.79.10.249" ipv4.dns-search greenbean.org
 sudo mv "/etc/NetworkManager/system-connections/System eth0.nmconnection" \
         /etc/NetworkManager/system-connections/servers0.nmconnection
 sudo nmcli connection reload
@@ -237,13 +240,13 @@ Initial config (relay-only, memfile). Key choices:
 },
 "subnet4": [ {
   "id": 61,
-  "subnet": "10.x.x.0/24",
-  "pools": [ { "pool": "10.x.x.100 - 10.x.x.199" } ],
-  "option-data": [ { "name": "routers", "data": "10.x.x.1" } ]
+  "subnet": "10.79.61.0/24",
+  "pools": [ { "pool": "10.79.61.100 - 10.79.61.199" } ],
+  "option-data": [ { "name": "routers", "data": "10.79.61.1" } ]
 } ]
 ```
 
-- No subnet for the server's own `10.x.x.0/24` — that's the relay-only rule.
+- No subnet for the server's own `10.79.20.0/24` — that's the relay-only rule.
 - `service-sockets-require-all` — fail loudly at start rather than run deaf.
 - Unix control socket named bare (`kea4-ctrl-socket`) — Kea 3.0 restricts socket
   paths to its own run directory (`/var/run/kea/`).
@@ -251,7 +254,7 @@ Initial config (relay-only, memfile). Key choices:
 ```bash
 sudo kea-dhcp4 -t /etc/kea/kea-dhcp4.conf && echo CONFIG OK
 sudo systemctl enable --now kea-dhcp4
-sudo ss -ulnp | grep ':67'                          # 10.x.x.70:67 only
+sudo ss -ulnp | grep ':67'                          # 10.79.20.70:67 only
 ```
 
 **SELinux finding:** the ISC binary is labelled `bin_t` and runs as
@@ -272,7 +275,7 @@ field only lists existing destinations.
 
 | | |
 |---|---|
-| Destination | `kea1` → `10.x.x.70` |
+| Destination | `kea1` → `10.79.20.70` |
 | Relay | Interface `DHCPTEST`, destination `kea1`, Agent Information ✔ |
 | Circuit id | `olt1-pon61` |
 | Remote id | `ont-client1` |
@@ -280,7 +283,7 @@ field only lists existing destinations.
 Running process (OpenBSD `dhcrelay`, not ISC's):
 
 ```
-/usr/local/sbin/dhcrelay -d -or -i vlan07 -C olt1-pon61 -R ont-client1 10.x.x.70
+/usr/local/sbin/dhcrelay -d -or -i vlan07 -C olt1-pon61 -R ont-client1 10.79.20.70
 ```
 
 ### 6.2 Three flows, three firewall decisions
@@ -291,14 +294,14 @@ Running process (OpenBSD `dhcrelay`, not ISC's):
    existing `SERVERS net → any` rule already allows it.
 3. **Unicast renewal at T1** — the client renews straight to the server ID,
    bypassing the relay. New DHCPTEST rule: pass UDP, *DHCPTEST net* →
-   `10.x.x.70/32` port 67, "DHCPTEST unicast renewals to kea1".
+   `10.79.20.70/32` port 67, "DHCPTEST unicast renewals to kea1".
 
 ### 6.3 kea1 firewalld zone
 
 ```bash
 sudo firewall-cmd --permanent --new-zone=dhcp-relay
-sudo firewall-cmd --permanent --zone=dhcp-relay --add-source=10.x.x.1/32       # the relay (see §8.3)
-sudo firewall-cmd --permanent --zone=dhcp-relay --add-source=10.x.x.0/24       # subscriber prefix, renewals
+sudo firewall-cmd --permanent --zone=dhcp-relay --add-source=10.79.61.1/32       # the relay (see §8.3)
+sudo firewall-cmd --permanent --zone=dhcp-relay --add-source=10.79.61.0/24       # subscriber prefix, renewals
 sudo firewall-cmd --permanent --zone=dhcp-relay --add-service=dhcp
 sudo firewall-cmd --reload
 sudo firewall-cmd --get-active-zones       # dhcp-relay (sources) + public (eth0)
@@ -308,17 +311,17 @@ Source zones are matched before interface zones, so only these sources reach UDP
 
 ### 6.4 Checkpoint 3 ✅ — first relayed lease
 
-`client1` received `10.x.x.100/24`, gateway `10.x.x.1`, both Pi-holes.
+`client1` received `10.79.61.100/24`, gateway `10.79.61.1`, both Pi-holes.
 `tcpdump -ni eth0 -vv port 67` on `kea1` showed the full DORA:
 
 | Field in capture | Meaning |
 |---|---|
-| `10.x.x.1.bootps > 10.x.x.70.bootps` | Relay sources from `giaddr`, unicast to the server |
-| `Gateway-IP 10.x.x.1`, `hops 1` | `giaddr` set; Kea selected subnet 61 from it |
+| `10.79.61.1.bootps > 10.79.20.70.bootps` | Relay sources from `giaddr`, unicast to the server |
+| `Gateway-IP 10.79.61.1`, `hops 1` | `giaddr` set; Kea selected subnet 61 from it |
 | `Circuit-ID … olt1-pon61`, `Remote-ID … ont-client1` | Option 82 as configured |
-| Reply to `10.x.x.1.bootps` | Kea answers `giaddr` |
+| Reply to `10.79.61.1.bootps` | Kea answers `giaddr` |
 | Option 82 echoed in OFFER/ACK | Required by RFC 3046; relay strips it before forwarding |
-| `Server-ID 10.x.x.70` | Why renewals go direct to `kea1` |
+| `Server-ID 10.79.20.70` | Why renewals go direct to `kea1` |
 | `bad udp cksum` on outbound | Checksum offload — captured before the virtio NIC fills it in. Harmless |
 
 ---
@@ -333,7 +336,7 @@ Source zones are matched before interface zones, so only these sources reach UDP
 ...
 "reservations": [ {
   "circuit-id": "'olt1-pon61'",
-  "ip-address": "10.x.x.50",
+  "ip-address": "10.79.61.50",
   "hostname": "olt1-pon61-static"
 } ]
 ```
@@ -347,10 +350,10 @@ Source zones are matched before interface zones, so only these sources reach UDP
 On `nmcli con down/up` the capture showed the reservation overriding the existing lease:
 
 ```
-Request  Requested-IP 10.x.x.100
+Request  Requested-IP 10.79.61.100
 NACK                                   ← reservation now says .50
-Discover Requested-IP 10.x.x.100
-Offer    Your-IP 10.x.x.50
+Discover Requested-IP 10.79.61.100
+Offer    Your-IP 10.79.61.50
 ```
 
 The memfile CSV is append-only: one row per lease change (old `.100` reappears
@@ -384,7 +387,7 @@ Bound to loopback until a consumer exists. Queried with curl:
 PW=$(sudo cat /etc/kea/kea-api-mcp.pw)
 kea() { curl -s -u "mcp-ro:$PW" -H 'Content-Type: application/json' -d "$1" http://127.0.0.1:8004/ | jq; }
 kea '{"command":"status-get"}'
-kea '{"command":"lease4-get","arguments":{"ip-address":"10.x.x.50"}}'
+kea '{"command":"lease4-get","arguments":{"ip-address":"10.79.61.50"}}'
 kea '{"command":"lease4-get-by-hw-address","arguments":{"hw-address":"<client1-mac>"}}'
 kea '{"command":"stat-lease4-get","arguments":{"subnet-id":61}}'
 kea '{"command":"statistic-get-all"}'
@@ -455,7 +458,7 @@ PGPASSWORD="$DBPW" psql -h 127.0.0.1 -U kea -d kea -c \
 "select inet '0.0.0.0' + address as ip, encode(hwaddr,'hex') as mac, subnet_id, hostname, expire, user_context from lease4;"
 ```
 
-Lease `10.x.x.50`, hostname `olt1-pon61-static`, relay info in `user_context`. The
+Lease `10.79.61.50`, hostname `olt1-pon61-static`, relay info in `user_context`. The
 API returned the same lease unchanged — tooling talks to Kea, not the tables.
 
 ### 7.4 Step 6 — Load test with `perfdhcp` ✅
@@ -467,17 +470,17 @@ synthetic clients out of real pools:
 ```json
 { "id": 100, "subnet": "100.64.0.0/22",
   "pools": [ { "pool": "100.64.0.10 - 100.64.3.250" } ],
-  "relay": { "ip-addresses": [ "10.x.x.140" ] },
+  "relay": { "ip-addresses": [ "10.79.20.140" ] },
   "valid-lifetime": 300, "renew-timer": 100, "rebind-timer": 200 }
 ```
 
-`giaddr` `10.x.x.140` falls in no subnet prefix, so Kea falls back to the subnet's
+`giaddr` `10.79.20.140` falls in no subnet prefix, so Kea falls back to the subnet's
 `relay` list. Pool = 1009 addresses; `-R 900` keeps client count below it so pool
 exhaustion can't masquerade as overload. `dority` added to the `dhcp-relay` zone.
 perfdhcp from ISC's `kea-3-0` deb repo (`isc-kea-perfdhcp`, lives in `/usr/sbin`).
 
 ```bash
-sudo perfdhcp -4 -l 10.x.x.140 -r <rate> -R 900 -p 30 10.x.x.70
+sudo perfdhcp -4 -l 10.79.20.140 -r <rate> -R 900 -p 30 10.79.20.70
 ```
 
 **Results** — 2 vCPU / 2 GB VM, Kea 3.0.4 multi-threaded (defaults: 2 threads,
@@ -676,7 +679,7 @@ RHEL 10 drops ISC dhcpd and ships Kea, so EL estates are moving to Kea regardles
 
 - **MCP server** (read-only `lease_lookup`, `pool_utilization`, `kea_health`)
   against the 5a API — needs the HTTP socket rebound from loopback to
-  `10.x.x.70` with firewalld allowing only the MCP host.
+  `10.79.20.70` with firewalld allowing only the MCP host.
 - **SELinux confinement of Kea** — label the binary, collect AVCs, fix with
   `semanage` / `restorecon` / targeted policy rather than staying unconfined.
 - **Stretch:** DDNS to a BIND test zone; HA hook with `kea2` at `.71`
@@ -708,9 +711,9 @@ RHEL 10 drops ISC dhcpd and ships Kea, so EL estates are moving to Kea regardles
 
 | | |
 |---|---|
-| Server | `kea1` — VM 950 on swearengen, Rocky 9, `10.x.x.70/24`, user `aba` |
-| Test client | `client1` — VM 951, VLAN 61, reserved `10.x.x.50` |
-| Relay | OPNsense `wu`, `DHCPTEST` = `opt7` = device `vlan07`, `10.x.x.1/24`; circuit `olt1-pon61`, remote `ont-client1` |
+| Server | `kea1` — VM 950 on swearengen, Rocky 9, `10.79.20.70/24`, user `aba` |
+| Test client | `client1` — VM 951, VLAN 61, reserved `10.79.61.50` |
+| Relay | OPNsense `wu`, `DHCPTEST` = `opt7` = device `vlan07`, `10.79.61.1/24`; circuit `olt1-pon61`, remote `ont-client1` |
 | Config | `/etc/kea/kea-dhcp4.conf` (backups `.dist`, `.step4`, `.step5a`, `.step5b`) |
 | Validate | `sudo kea-dhcp4 -t /etc/kea/kea-dhcp4.conf` — then **check the service after restart** |
 | Reload in place | `sudo systemctl kill -s HUP kea-dhcp4` |
@@ -722,5 +725,5 @@ RHEL 10 drops ISC dhcpd and ships Kea, so EL estates are moving to Kea regardles
 | Firewall | `sudo firewall-cmd --get-active-zones` · `--zone=dhcp-relay --list-all` |
 | SELinux | `ps -eZ \| grep kea` · `sudo ausearch -m AVC -ts recent \| audit2why` |
 | Relay process | `pgrep -lf dhcrelay` (on OPNsense) |
-| Load test | `sudo perfdhcp -4 -l 10.x.x.140 -r 1000 -R 900 -p 30 10.x.x.70` (on `dority`) |
+| Load test | `sudo perfdhcp -4 -l 10.79.20.140 -r 1000 -R 900 -p 30 10.79.20.70` (on `dority`) |
 | Guest console | `qm terminal 950` / `951` (Ctrl+O) |
