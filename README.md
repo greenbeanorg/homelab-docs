@@ -8,7 +8,7 @@ These are working documents, not tutorials. Each one records what was actually
 built, why the approach was chosen, what broke along the way, and how to rebuild
 it from nothing.
 
-**28 runbooks, ~8,800 lines** of production-style documentation.
+**28 runbooks, ~9,300 lines** of production-style documentation.
 
 ---
 
@@ -58,7 +58,7 @@ it from nothing.
 | Doc | Covers |
 | --- | --- |
 | [KEA-DHCP-LAB.md](KEA-DHCP-LAB.md) | ISP-style relayed DHCPv4 — a central Kea 3.0 LTS server on Rocky Linux 9 (SELinux enforcing, firewalld) that never serves its own link, reached only through an OPNsense relay adding giaddr and option 82. Circuit-id reservations, PostgreSQL lease backend, the Kea HTTP API with `lease_cmds` / `stat_cmds`, and a `perfdhcp` load test that found saturation at ~2,700 leases/s and proved the limit was CPU, not queue depth — plus an honest write-up of the outage a passing config test caused |
-| [VSPHERE-NESTED-LAB.md](VSPHERE-NESTED-LAB.md) | **In progress.** Nested vSphere 8 on Proxmox — virtual hardware ESXi actually has drivers for (why the installer saw no disk on PVSCSI), CPU-model matching for vMotion across mismatched hosts, VCSA prerequisites, and an evaluation-only cluster build |
+| [VSPHERE-NESTED-LAB.md](VSPHERE-NESTED-LAB.md) | A two-host vSphere 8 cluster nested on Proxmox, evaluation mode only — virtual hardware ESXi actually has drivers for, one CPU model across Comet Lake and Kaby Lake hosts so vMotion works without EVC, VCSA deployed by the CLI installer from a JSON template with prompted passwords, inventory and a distributed switch built with `govc`, and shared-nothing vMotion at zero packet loss. Templates and linked clones, a guest kernel panic traced to XSAVE through two hypervisor layers, and a cold VMware → Proxmox migration with the native ESXi importer — snapshots, VirtIO pre-checks, guest tools, rollback |
 
 ### Additional projects
 | Doc | Covers |
