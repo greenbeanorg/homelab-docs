@@ -1,7 +1,7 @@
 # Nested vSphere 8 Lab — ESXi and vCenter on Proxmox
 
-**Status:** CORE COMPLETE — Steps 1–8 built and verified 2026-10-18; NFS/HA and the CPU-model fix are open, see [§12](#12-still-ahead)
-**Built:** 2026-10-17 → 2026-10-18
+**Status:** CORE COMPLETE — Steps 1–9 built and verified 2026-10-18 (including a VMware → Proxmox migration); NFS/HA and the CPU-model fix are open, see [§12](#12-still-ahead)
+**Built:** 2026-10-16 (first attempt) · 2026-10-17 → 2026-10-18
 **Hosts:** `esxi01` (VM 960, swearengen), `esxi02` (VM 961, garrett), `vcsa01` (VCSA Tiny on `esxi01`), `dority` as the automation workstation
 **Stack:** ESXi 8.0.2 (build 22380479), vCenter Server Appliance 8.0.2 (build 22617221), `govc` (govmomi), Alpine Linux 3.24 test guests
 **Licensing:** evaluation mode only — no license keys applied (60-day full-feature evaluation)
@@ -11,7 +11,10 @@ A two-host vSphere 8 cluster running nested on two Proxmox hosts with different
 CPU generations. vCenter is deployed from a JSON template with the CLI installer,
 the inventory is built with `govc`, VMs move between hosts with shared-nothing
 vMotion at zero packet loss, and test guests are deployed from a generalized
-template. Along the way: a nested CPU-feature kernel panic traced to XSAVE.
+template. Two of those guests are then migrated off vSphere onto Proxmox with
+Proxmox's native ESXi importer, from the CLI. Along the way: a nested CPU-feature
+kernel panic traced to XSAVE — and confirmed by the migration, when the workaround
+was no longer needed one hypervisor layer down.
 
 ---
 
@@ -61,7 +64,7 @@ VLAN tagging itself, the way a physical host on a switch trunk would.
 | `vcsa01` | `10.79.60.10` — `vcsa01.greenbean.org` |
 | `esxi01` | `10.79.60.11` — VM 960 on swearengen |
 | `esxi02` | `10.79.60.12` — VM 961 on garrett |
-| `testvm01` / `testvm02` | `10.79.60.20` / `10.79.60.21` (static) |
+| `testvm01` / `testvm02` | `10.79.60.20` / `10.79.60.21` (static) — now Proxmox VMs 970 / 971 on garrett; ESXi originals powered off as rollback |
 | DNS / NTP | Pi-holes `10.79.10.250`, `10.79.10.249` (A + PTR for all three) · NTP `10.79.60.1` |
 | Inventory | `greenbean-dc` → `lab-cluster` → `esxi01`, `esxi02`; folders `infra`, `templates` |
 | Datastores | `esxi01-local` (~240 GB), `esxi02-local` (~112 GB) — VMFS-6, local |
@@ -119,7 +122,7 @@ VM settings (esxi01; esxi02 identical except memory and disk size):
 | `bios` | `ovmf`, efidisk `pre-enrolled-keys=0` | UEFI without Secure Boot keys keeps nested boot simple |
 | `cpu` | `custom-esxi-nested`, 4 cores | exposes VT-x; common baseline (§3.2) |
 | `memory` / `balloon` | 20480 (esxi02: 12288) / `0` | ESXi has no balloon driver |
-| disk | `sata0`, `ssd=1,discard=on` | ESXi 8 has no driver for QEMU's default LSI controller |
+| disk | `sata0`, `ssd=1,discard=on` | ESXi 8 detects none of QEMU's SCSI controllers, PVSCSI included (§9.7) |
 | NICs | 2× `vmxnet3`, `trunks=20;60;62`, `firewall=0` | §3.3 |
 
 Wipe leftovers from earlier attempts before installing (VM stopped):
@@ -288,7 +291,7 @@ govc object.rename "/greenbean-dc/datastore/datastore1 (1)" esxi02-local
 
 ---
 
-## 8. Steps 5–8
+## 8. Steps 5–9
 
 ### 8.1 Step 5 — Distributed switch and vMotion ✅
 
@@ -389,6 +392,132 @@ The clone's own disk is **1.0 MB** against ~450 MB written in the parent. govc's
 `vm.info` "committed" figure (449 MB) counts the shared parent it reads from, so
 check the datastore listing for a linked clone's real footprint.
 
+### 8.5 Step 9 — Migrate VMware → Proxmox ✅
+
+Cold migration of `testvm01` → VM **970** and `testvm02` → VM **971**, onto
+**garrett** (swearengen carries TrueNAS and Plex, so migration load stays off it),
+using Proxmox's native ESXi import (`pve-esxi-import-tools` 1.0.1, PVE 9.2) — all
+from the CLI.
+
+**Pre-migration (vSphere side):**
+
+```bash
+govc vm.destroy testvm03                    # linked clone depending on testvm02's snapshot
+govc snapshot.remove -vm testvm02 base      # importer doesn't want snapshot chains
+govc snapshot.tree -vm testvm02             # empty
+```
+
+In each guest — confirm it can boot on VirtIO, record identity. Nothing else is
+changed on the source, so it stays a clean rollback copy:
+
+```bash
+grep ^features /etc/mkinitfs/mkinitfs.conf  # features="ata base ide scsi usb virtio ext4"
+ip addr show eth0 | grep -E 'ether|inet '   # VMware MAC (00:50:56 OUI) + .20 / .21 — recorded off-repo
+```
+
+The Linux equivalent of injecting VirtIO drivers into a Windows guest before
+migrating: if the initramfs lacks the virtio storage driver, the VM boots on
+Proxmox and can't find its root disk.
+
+**Cutover** — clean guest shutdown via VMware Tools, at 05:52:15:
+
+```bash
+govc vm.power -s testvm01 testvm02
+govc vm.info testvm01 testvm02 | grep -E 'Name:|Power state'   # repeat — shutdown is asynchronous
+```
+
+**Import (garrett):**
+
+```bash
+read -rs -p "ESXi root password: " ESXPW; echo
+pvesm add esxi esxi02 --server esxi02.greenbean.org --username root \
+  --password "$ESXPW" --skip-cert-verification 1
+unset ESXPW
+pvesm list esxi02          # esxi02:ha-datacenter/esxi02-local/testvm01/testvm01.vmx …
+
+time qm import 970 'esxi02:ha-datacenter/esxi02-local/testvm01/testvm01.vmx' --storage local-lvm
+```
+
+What the importer produced by default — a faithful copy of the VMware hardware:
+
+```
+bios: seabios
+boot: order=ide0;scsi0
+ide0: none,media=cdrom
+memory: 1024
+net0: vmxnet3=<source-mac>             ← VMware NIC model and original MAC kept
+ostype: l26                            ← guest OS detected from the .vmx
+scsi0: local-lvm:vm-970-disk-0,size=8G
+scsihw: lsi                            ← LSI emulation, matching the source controller
+smbios1: uuid=f1501542-1ee0-5702-…     ← derived from the VMware UUID 421550f1-e01e-0257-…
+```
+
+Keeping the MAC and an LSI controller makes the first boot safe even for a guest
+without VirtIO drivers. The SMBIOS UUID is the VMware BIOS UUID with the first
+three fields byte-swapped (VMware and SMBIOS disagree on endianness), so
+UUID-licensed software sees the same machine.
+
+**Convert to native KVM devices:**
+
+```bash
+qm set 970 --memory 512
+qm set 970 --scsihw virtio-scsi-single
+qm set 970 --net0 virtio,bridge=vmbr0,tag=60,firewall=1   # importer doesn't carry VLAN tags
+qm set 970 --agent enabled=1
+qm set 970 --boot order=scsi0 --delete ide0                # drop the empty VMware CD-ROM
+qm start 970
+```
+
+The new NIC gets a new MAC; Alpine's `/etc/network/interfaces` isn't MAC-bound,
+so `eth0` came up on `10.79.60.20` unchanged. Root is mounted by UUID, so the
+controller change didn't matter either.
+
+**Guest fix-up:**
+
+```bash
+apk del open-vm-tools open-vm-tools-guestinfo
+apk add qemu-guest-agent
+rc-update add qemu-guest-agent default && rc-service qemu-guest-agent start
+```
+
+```bash
+qm guest cmd 970 network-get-interfaces | grep '"ip-address"'   # on garrett: 10.79.60.20
+```
+
+**Workaround removed:** on Proxmox the guest runs one hypervisor layer deep, so
+`noxsave` was taken out and both guests rebooted cleanly — confirming that the
+[§9.3](#93-guest-kernel-panic-in-fpstate_reset-xsave) panic was a nested-virtualization problem, not a guest problem.
+
+```bash
+sed -i 's/noxsave //' /etc/update-extlinux.conf && update-extlinux
+grep -c noxsave /boot/extlinux.conf          # 0
+```
+
+Repeated for `testvm02` → 971, then the stored ESXi credential removed:
+
+```bash
+pvesm remove esxi02        # the root password lived in /etc/pve/priv/
+```
+
+**Results:**
+
+| | testvm01 → 970 | testvm02 → 971 |
+|---|---|---|
+| Import time (8 GiB disk) | 2 m 09 s | 2 m 09 s |
+| Approx. downtime (shutdown → reachable) | ~8 min | ~15 min (imported second) |
+| Data path | garrett (VLAN 10) → OPNsense → esxi02 (VLAN 60), routed | same |
+
+Both guests answer on their original IPs; the ESXi originals stay **powered off**
+as the rollback (never run both — same IP, same hostname).
+
+- **The importer copies the full provisioned size** — all 8 GiB, though only ~450 MB
+  was written. Sparse disks still cost full transfer time; at scale, size disks
+  honestly or budget the window accordingly.
+- **Downtime is per VM and serial** here. In a real migration, import in parallel
+  or use live import, and schedule the window around the largest disks.
+- **The routed path is a lab compromise.** A real migration runs the import on the
+  same L2 network as the source hosts, ideally a dedicated one.
+
 ---
 
 ## 9. Incidents and corrections
@@ -452,11 +581,33 @@ drive; ejecting a locked drive raises a VM question that blocks the task.
 **Fix:** `poweroff` in the guest, then eject. (Alternatives: answer with
 `govc vm.question`, or unmount in the guest first; `-reset` for a hard reset.)
 
+### 9.7 First attempt — installer saw no disk on PVSCSI
+
+The first `esxi01` (VM 5000, 2026-10-16: i440FX, SeaBIOS, `cpu: host`) was
+discarded and rebuilt as VM 960 to the §4 spec.
+**Symptom:** the ESXi 8.0.2 installer's disk screen listed `Local: (none)`.
+**Cause:** the disk sat on `scsi0` behind QEMU's **VMware PVSCSI** controller. ESXi
+ships a pvscsi driver, but QEMU's emulation isn't detected by the ESXi 7/8
+installer. Proxmox's other SCSI types don't help either — the LSI 53C8xx and
+MegaRAID models have no ESXi 8 driver, ESXi has never had VirtIO, and ESXi 7
+removed the legacy vmklinux drivers that once covered old controllers.
+**Fix:** put the disk on SATA (set on the disk, not in the SCSI Controller
+dropdown) — ESXi's built-in `vmw_ahci` drives it:
+
+```bash
+qm set <vmid> --delete scsi0                        # disk becomes unused0
+qm set <vmid> --sata0 local-lvm:<volume>
+```
+
+**Lesson:** most nested-ESXi setup work is choosing virtual hardware ESXi has a
+driver for — SATA disk, vmxnet3 NIC, q35, UEFI.
+
 ---
 
 ## 10. Gotchas
 
-1. **ESXi 8 won't see a disk on QEMU's default SCSI controller.** Use SATA.
+1. **ESXi 8 won't see a disk on any of QEMU's SCSI controllers** — PVSCSI
+   included (§9.7). Use SATA.
 2. **ESXi has no balloon driver** — set `balloon: 0` on the Proxmox VM.
 3. **Proxmox firewall MAC filtering drops nested guest traffic.** `firewall=0` on the ESXi vNICs.
 4. **Custom CPU models aren't shared between unclustered Proxmox hosts.** Copy
@@ -480,6 +631,14 @@ drive; ejecting a locked drive raises a VM question that blocks the task.
     without `GOVC_PASSWORD` set burns attempts quickly.
 16. **Cloning to the same IP poisons `known_hosts`.** A re-addressed clone's key gets
     recorded under the template's IP; clear with `ssh-keygen -R <ip>`.
+17. **`govc vm.power -s` returns before the guest is off.** Poll the power state
+    before importing — a disk still being written gives a corrupt copy.
+18. **Remove snapshots and linked clones before migrating.** The importer wants a
+    single, consolidated disk.
+19. **Proxmox's ESXi importer keeps VMware hardware** (vmxnet3, original MAC, LSI)
+    and drops VLAN tags. Convert to VirtIO and re-tag after import.
+20. **`pvesm add esxi` stores the ESXi root password** under `/etc/pve/priv/`.
+    Remove the storage when the migration is done.
 
 ---
 
@@ -513,10 +672,15 @@ drive; ejecting a locked drive raises a VM question that blocks the task.
 - **Cluster-level EVC** at a Skylake baseline, to confirm vCenter agrees with §3.2.
 - **Content Library** for the template; a **guest customization spec** or cloud-init
   to replace the manual re-IP.
-- **vLCM** image-based host management.
+- **vLCM** image-based host management — likely limited to an imported offline
+  bundle, since Broadcom's online depot needs an entitlement-bound download token.
 - **Dedicated vMotion network** if a second lab VLAN is ever added end to end.
-- **Teardown** before the evaluation expires: VMs 960/961, ISOs, `govc` env file,
-  Pi-hole records for `vcsa01`/`esxi01`/`esxi02`.
+- **Live import** (`qm import … --live-import 1`) to compare downtime against the
+  cold migration in §8.5.
+- **Decommission the ESXi originals** of `testvm01`/`testvm02` once the Proxmox
+  copies have run for a while.
+- **Teardown** before the evaluation expires: VMs 960/961 and 970/971, ISOs, `govc`
+  env file, Pi-hole records for `vcsa01`/`esxi01`/`esxi02`.
 
 ---
 
@@ -552,3 +716,5 @@ drive; ejecting a locked drive raises a VM question that blocks the task.
 | License | `vim-cmd vimsvc/license --show` |
 | VCSA deploy | `vcsa-cli-installer/lin64/vcsa-deploy install --accept-eula --no-ssl-certificate-verification <json>` |
 | Proxmox side | `qm config 960` (swearengen) · `qm config 961` (garrett) · `free -h` |
+| ESXi → Proxmox | `pvesm add esxi <id> --server … --username root --password "$PW" --skip-cert-verification 1` · `pvesm list <id>` · `qm import <vmid> '<id>:ha-datacenter/<ds>/<vm>/<vm>.vmx' --storage local-lvm` |
+| Migrated guests | VMs 970 / 971 on garrett · `qm guest cmd 970 network-get-interfaces` |
