@@ -436,7 +436,37 @@ write. The lease was 555 s old (3600 − 3045), under the 900 s threshold.
 - Fix: bind server profiles by interface name only, and set `no-auto-default=*` so a
   failed profile leaves the NIC with no address instead of a DHCP one. Applied to both peers.
 
-### 10.3 Smaller notes
+### 10.3 The HA listener doesn't check credentials
+
+A kea-users report from January 2026 (Kea 3.0.2) said the dedicated HA listener accepted
+any credentials. Tested on 3.0.4 from kea1 against kea2's listener, sending the read-only
+`ha-heartbeat`:
+
+```
+-u kea-ha:WRONG      200
+no credentials       200
+```
+
+Both were accepted. As far as the configuration goes, `basic-auth-user` and
+`basic-auth-password-file` on a peer entry set what a server *presents* when it calls
+that peer; nothing here makes the listener demand them. `restrict-commands` limits the
+listener to HA commands, but those are the commands the peers use on each other — lease
+updates and sync among them — so the listener can't be treated as harmless.
+
+**The control is the network.** The `kea-peer` firewalld zone admits only the other
+peer's address to 8005, on both servers; a request to 8005 from dority, which can reach
+the API on 8004, gets no answer. The peer password stays configured — it costs nothing
+and starts mattering if a release enforces it — but it isn't relied on.
+
+Retest after every Kea upgrade:
+
+```bash
+ssh aba@10.79.20.70 'curl -s -o /dev/null -w "%{http_code}\n" -u kea-ha:WRONG \
+  -H "Content-Type: application/json" -d "{\"command\":\"ha-heartbeat\"}" http://10.79.20.71:8005/'
+# 401 = credentials now enforced; 200 = still open, firewall is the only control
+```
+
+### 10.4 Smaller notes
 
 - **The clone's first boot** logged `bind: Cannot assign requested address` for
   `10.79.20.70:8004` and exited. Harmless — that failure is what kept the clone from
@@ -450,17 +480,16 @@ write. The lease was 555 s old (3600 − 3045), under the 900 s threshold.
 
 ## 11. Not tested, and production differences
 
-- **Peer listener authentication.** A kea-users report against Kea 3.0.2 described the
-  dedicated HA listener accepting any credentials. Not yet verified on 3.0.4 with a
-  wrong-password request; until it is, the `kea-peer` firewall zone is the control.
 - **Clients finding their way back to the primary.** After failback, client1 holds a
   lease with server id `.71`; its T1 renewal unicasts to kea2, which as standby drops it,
   and the client should rebind by broadcast at T2 and get kea1. Expected, not observed.
 - **Split brain** was reasoned about (§6.3) and `ha_status` flags it in simulated tests, but
   the peer link was never cut while both servers stayed up.
 - **`max-unacked-clients` above zero** — production setting, untestable with one client.
-- **Peer traffic is plain HTTP.** Production would use TLS between peers (the HA hook
-  supports `trust-anchor`, `cert-file`, `key-file` per peer).
+- **Peer traffic is plain HTTP, and unauthenticated in practice (§10.3).** Production
+  would use TLS between peers; the HA hook takes `trust-anchor`, `cert-file` and
+  `key-file` per peer. Whether mutual TLS on the dedicated listener closes the gap in
+  §10.3 hasn't been tested here.
 - **The single-server MCP tools** (`kea_health`, `lease_lookup`, `pool_utilization`)
   still query only kea1, so during a failover they report kea1 unreachable while
   `ha_status` shows kea2 serving. Following the serving peer is a natural next step.
