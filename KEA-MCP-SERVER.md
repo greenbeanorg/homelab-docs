@@ -382,6 +382,11 @@ The audit log shows both calls two seconds apart:
 tail -2 ~/git/kea-mcp/logs/calls.log | jq -c '{ts, tool, args, outcome}'
 ```
 
+The same session, with two follow-up questions answered from live tool calls
+(hardware address redacted):
+
+![Claude Code answering lease, health and subnet questions through the kea MCP server](images/kea-mcp-claude-code.png)
+
 ---
 
 ## 9. Incidents and corrections
