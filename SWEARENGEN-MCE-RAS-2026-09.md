@@ -1,11 +1,14 @@
 # swearengen Memory / MCE / RAS Investigation — 2026-09
 
-Status: **REOPENED 2026-10-08** — 18 corrected MCEs recorded between 2026-09-15 and 2026-10-07.
-All are bank 0 (instruction fetch unit) internal parity errors, all corrected, none uncorrected.
-RAM has been ruled out as the source of these events. Investigation is active and under
-observation; see Sections 11–14 and 16.
+Status: **OPEN — updated 2026-10-22.** 46 corrected MCEs recorded by rasdaemon between 2026-09-15
+and 2026-10-22, all bank 0 (instruction fetch unit) internal parity errors, none uncorrected.
+The kernel journal shows **zero** such events across ~879 days of uptime from 2024-04-01 to
+2026-09-14, and the rate has risen since onset to ~2/day. Leading hypothesis is now
+**progressive degradation of the CPU** (Section 16). A C10 idle-state test is running
+(Section 17.0).
 
-Investigation originally performed: 2026-09-14 (closed 2026-09-14, reopened 2026-10-08)
+Investigation originally performed: 2026-09-14 (closed 2026-09-14, reopened 2026-10-08,
+revised 2026-10-22)
 
 Diagnostic runbook for `swearengen`, the primary Proxmox host, covering investigation of possible
 memory instability, Machine Check Exceptions (MCE), EDAC/RAS reporting, and PCIe AER errors.
@@ -17,6 +20,19 @@ The host has 48 GB of installed system memory.
 > original Sections 1–10 are preserved as the record of that first pass, with two factual
 > corrections marked inline in Section 6. Sections 11–14 are new. Sections 15–21 have been
 > rewritten to reflect current findings.
+
+> ⚠️ **Revision note (2026-10-22).** Two weeks of new data and a search of the full kernel
+> journal (51 boots, back to 2024-04-01) overturned two conclusions of the 2026-10-08 revision:
+>
+> - **"Step, then plateau at ~1/day"** — the rate doubled to ~2/day from 2026-10-08 with no
+>   configuration change (Section 13).
+> - **"Baseline silicon behavior" as a live hypothesis** — this CPU logged no machine checks
+>   at all for ~2.5 years before 2026-09-15 (Section 13).
+>
+> The 2026-10-08 text of Sections 13, 15, 16, 17 and 21 is revised in place; superseded claims
+> are marked rather than deleted. Section 1 now records two silent host freezes (2026-05-16
+> and 2026-09-04) found in the boot history, and the kernel command-line changes that followed
+> the first.
 
 ---
 
@@ -53,9 +69,11 @@ The host has 48 GB of installed system memory.
 > ⚠️ **TODO (still open):** the specific symptom that prompted the original investigation —
 > crash, VM stall, unexpected reboot, log message noticed — was never recorded, and the
 > journal for that period has since rotated. One candidate remains visible in the boot
-> history: boot `-2` ended 2026-09-04 02:53 and the next boot did not start until 05:30, a
-> ~2.5 hour unexplained gap in the middle of the night. That has not been confirmed as the
-> trigger.
+> history: a boot ended 2026-09-04 02:53 and the next did not start until 05:30. **Update
+> 2026-10-22:** that gap is the 2026-09-04 hard freeze root-caused in
+> [SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md) (now boot
+> `-3`), which makes it the most likely trigger for this investigation ten days later. See the
+> freeze history below.
 
 The first pass was performed to determine whether the host had evidence of:
 
@@ -73,6 +91,48 @@ The first pass was performed to determine whether the host had evidence of:
 2026-10-08 the database held 18 events. All are corrected `Internal parity error` records in
 machine-check bank 0. The reopening is about an observed, recurring, logged hardware event —
 not a crash or a stall. The host has remained stable throughout.
+
+### Freeze history found in the boot record (added 2026-10-22)
+
+The last journal line of each boot shows whether it ended in a clean shutdown (`systemd-journald:
+Journal stopped`) or stopped mid-stream. Every boot from 2026-02-02 onward ended cleanly except
+two:
+
+| Boot | Kernel | Ended | Last journal line | Uptime |
+|---|---|---|---|---:|
+| `-9` | 6.17.4-2-pve | **2026-05-16 03:45:49** | `smartd: Device: /dev/sdd [SAT], SMART Usage Attribute: 194 …` | 102.6 days |
+| `-3` | 7.0.14-14-pve | **2026-09-04 02:53:06** | `usbhid-ups: nut_libusb_get_string: Pipe error` | 4.6 days |
+
+The 2026-09-04 freeze is the one root-caused in
+[SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md](SWEARENGEN-USB-CONTROLLER-HANG-2026-09.md). The
+2026-05-16 freeze was not previously documented in this repository. Both occurred in the middle
+of the night, with the host near idle.
+
+### Kernel command-line changes after the 2026-05-16 freeze
+
+Per-boot `Command line:` entries from the journal:
+
+| First boot with it | Kernel | Parameter added |
+|---|---|---|
+| 2026-05-20 07:08 (boot `-7`) | 7.0.2-5-pve | `nvme_core.default_ps_max_latency_us=0 pcie_aspm=off` |
+| 2026-08-21 16:53 (boot `-4`) | 7.0.14-12-pve | `intel_iommu=on` |
+
+Boot `-8` (2026-05-16, the first 7.0 kernel) did not have them. The reasoning survives only in an
+unversioned note, `/root/troubleshoot-this-server.txt` (mtime 2026-05-16 12:56), which records the
+working hypothesis at the time as an **NVMe + PCIe power-management interaction causing a full
+bus hang**, explicitly ruling out SSD failure (SMART clean), filesystem, Proxmox and ZFS. The note
+also says the fix had not been fully tested, and lists the next steps if freezes continued:
+overnight memtest, BIOS update, disabling deep C-states, and a PSU check.
+
+> ⚠️ **The freezes did continue.** The 2026-09-04 hang occurred with both parameters in place, so
+> by the note's own criteria the NVMe/PCIe hypothesis was not confirmed. The USB-controller
+> diagnosis for 2026-09-04 rests on log-silence correlation rather than a stack trace. Whether the
+> two freezes and the MCE onset eleven days later share a cause is **not established** — but they
+> are recorded together here rather than as three unrelated incidents, because they are the same
+> host, both freezes were at night near idle, and the MCEs also cluster at idle.
+
+`intel_iommu=on` is also undocumented: [TRUENAS.md](TRUENAS.md) states the SATA passthrough
+needed no kernel command-line change. The parameter is harmless, but its origin is not recorded.
 
 ---
 
@@ -141,6 +201,11 @@ Microcode:
     0x100 (2024-11-14) — current; `intel-microcode 3.20251111.1~deb13u1` ships
     no newer revision for signature 0x000A0655.
 
+The BIOS carries 0xe2; the OS loads 0x100 early. The journal shows `Updated early from:
+0x000000e2` → `Current revision: 0x00000100` on **every** boot from 2026-02-02 (boot `-9`)
+through the current one — months before the first MCE. Package history: `intel-microcode`
+upgraded 2025-10-22 and 2026-01-12, neither near the onset.
+
 Logical CPUs:
 
     12
@@ -178,7 +243,7 @@ rated speed to match the 3000-rated pair.
 
 | Period | Configured speed | Cause |
 |---|---|---|
-| through 2026-09-19 18:06 | 3000 MT/s | XMP enabled |
+| through 2026-09-19 18:06 (start date not recorded) | 3000 MT/s | XMP enabled |
 | 2026-09-19 18:12 → 2026-09-23 ~11:00 | 2133 MT/s | XMP disabled during an unrelated BIOS session |
 | 2026-09-23 ~11:00 → present | 3000 MT/s | XMP re-enabled |
 
@@ -503,7 +568,8 @@ These appear in the same `dmesg` window as the MCE lines and are unrelated:
 
 ## 11. MCE Event Record (2026-09 → 2026-10)
 
-All 18 events recorded to date. Every row is identical in kind: bank 0, status
+All 46 events recorded by rasdaemon through 2026-10-22 (rows 19–46 added in the 2026-10-22
+revision). Every row is identical in kind: bank 0, status
 `0x9000004000010005`, corrected, `Internal parity error`.
 
 | # | Timestamp | CPU | APIC ID | Bank | Status | Severity |
@@ -526,6 +592,40 @@ All 18 events recorded to date. Every row is identical in kind: bank 0, status
 | 16 | 2026-10-04 16:22:03 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
 | 17 | 2026-10-05 22:53:30 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
 | 18 | 2026-10-07 18:21:14 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 19 | 2026-10-08 09:56:20 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
+| 20 | 2026-10-08 21:10:09 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
+| 21 | 2026-10-09 07:40:06 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 22 | 2026-10-10 06:26:33 | 1 | 2 | 0 | `0x9000004000010005` | Corrected |
+| 23 | 2026-10-10 06:53:13 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 24 | 2026-10-10 20:08:08 | 0 | 0 | 0 | `0x9000004000010005` | Corrected |
+| 25 | 2026-10-13 04:32:37 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 26 | 2026-10-13 08:20:50 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 27 | 2026-10-13 14:34:47 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
+| 28 | 2026-10-13 23:46:29 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 29 | 2026-10-14 09:51:28 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 30 | 2026-10-15 01:51:20 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 31 | 2026-10-15 02:11:21 | 5 | 10 | 0 | `0x9000004000010005` | Corrected |
+| 32 | 2026-10-15 11:51:23 | 5 | 10 | 0 | `0x9000004000010005` | Corrected |
+| 33 | 2026-10-16 01:44:39 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 34 | 2026-10-16 18:11:45 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 35 | 2026-10-17 12:54:55 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 36 | 2026-10-18 12:33:08 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 37 | 2026-10-18 14:23:11 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 38 | 2026-10-19 04:08:06 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
+| 39 | 2026-10-19 04:43:12 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
+| 40 | 2026-10-19 22:32:52 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 41 | 2026-10-20 14:06:09 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 42 | 2026-10-20 23:47:45 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 43 | 2026-10-21 11:22:46 | 5 | 10 | 0 | `0x9000004000010005` | Corrected |
+| 44 | 2026-10-21 16:56:02 | 3 | 6 | 0 | `0x9000004000010005` | Corrected |
+| 45 | 2026-10-22 05:39:20 | 2 | 4 | 0 | `0x9000004000010005` | Corrected |
+| 46 | 2026-10-22 11:31:18 | 4 | 8 | 0 | `0x9000004000010005` | Corrected |
+
+> ⚠️ The kernel journal counts **47** `Machine check events logged` lines over the same period
+> against rasdaemon's 46: boot `-2` (2026-09-04 → 09-19) shows 2 in the journal but 1 in the
+> database. The first event may predate rasdaemon recording, or the kernel may have printed the
+> notice twice for one event. Small, but it means the journal, not the database, is the longer
+> and more complete record.
 
 Query that produces this (note `status` is stored as a signed 64-bit integer; `printf`
 converts it back to the hex form the kernel prints):
@@ -593,31 +693,73 @@ silicon, not an exotic failure mode.
 
 ## 13. Rate, Distribution, and Configuration Timeline
 
-### Rate over time
+### Long-term history: none before 2026-09-15 (added 2026-10-22)
+
+rasdaemon has only been recording since mid-September, but the kernel prints `mce: [Hardware
+Error]: Machine check events logged` for every corrected event regardless, and the journal on
+this host holds 51 boots back to 2024-04-01. Counting that line per boot:
+
+| Period | Boots | Uptime | Events |
+|---|---:|---:|---:|
+| 2024-04-01 → 2026-05-16 (kernels 6.5 → 6.17) | 43 | ~768 days | **0** |
+| 2026-05-16 → 2026-09-04 (kernels 7.0.2 → 7.0.14-14) | 6 | ~111 days | **0** |
+| 2026-09-04 → 2026-09-19 (boot `-2`, 7.0.14-15) | 1 | 15.5 days | 2 |
+| 2026-09-19 → 2026-09-23 (boot `-1`, 7.0.14-17, XMP off) | 1 | 3.7 days | 1 |
+| 2026-09-23 → 2026-10-22 (boot `0`, 7.0.14-19) | 1 | 29.3 days | 44 |
+
+**This CPU logged no machine checks at all for ~2.5 years and ~879 days of uptime.** The
+~111 clean days on 7.0-series kernels — the same kernel family as today — rule out a change
+in how the kernel reports these events. The errors are genuinely new.
+
+The query (prints events per boot with uptime and rate):
+
+    journalctl --list-boots -q --no-pager | while read idx id _ fd ft _ _ ld lt _; do
+      n=$(journalctl -b "$idx" -k -q --no-pager -g "Machine check events logged" | wc -l)
+      echo "boot $idx  $fd → $ld  $n events"
+    done
+
+> ⚠️ The kernel rate-limits this message. At one or two events per day that cannot
+> undercount meaningfully, but a burst of hundreds in minutes would be undercounted.
+
+### Rate over time (revised 2026-10-22)
 
 | Window | Memory config | Events | Rate |
 |---|---|---:|---:|
+| 2024-04-01 → 2026-09-14 | not recorded (3000 XMP at least recently) | 0 | **0** |
 | 2026-09-14 → 09-23 ~11:00 | 3000 (XMP), then 2133 from 09-19 | 2 | ~0.22/day |
 | 2026-09-23 ~11:00 → 10-01 00:00 | 3000 (XMP) | 9 | ~1.2/day |
 | 2026-10-01 → 10-08 06:52 | 3000 (XMP) | 7 | ~0.96/day |
+| **2026-10-08 06:52 → 10-15 06:52** | 3000 (XMP) | **13** | **~1.9/day** |
+| **2026-10-15 06:52 → 10-22 11:31** | 3000 (XMP) | **15** | **~2.1/day** |
 
-> ⚠️ **This is a step, not a ramp.** An intermediate reading on 2026-09-27 (6 events in 3.5
-> days) was interpreted at the time as a rising trend suggesting progressive degradation. Two
-> further weeks of data did not support that: the rate stepped up once around 2026-09-23 and
-> has since held flat at roughly 1/day for ~15 days. Progressive silicon degradation does not
-> plateau for two weeks. A configuration that changed once and stayed changed does.
+> ~~**This is a step, not a ramp.**~~ **Superseded 2026-10-22.** The 2026-10-08 revision read
+> the 09-23 → 10-08 data as a single step followed by a plateau at ~1/day, and argued that
+> "progressive silicon degradation does not plateau for two weeks." The plateau did not hold:
+> the rate roughly doubled from 2026-10-08 and stayed there for two consecutive weeks, with no
+> reboot, BIOS session, package activation or new guest at that boundary (Section 15). Read
+> together with the clean 2.5-year history, the full series is **zero for years, then a rise
+> that has not stopped** — the shape progressive degradation produces.
 >
-> The 2026-09-23 BIOS session (XMP re-enabled) is the only known change at that boundary.
+> The lesson from the first reversal still applies, in the other direction: a 15-day window
+> was not long enough to call a plateau either.
 
-### Core distribution
+### Core distribution (revised 2026-10-22)
 
 | CPU | 0 | 1 | 2 | 3 | 4 | 5 |
 |---|---:|---:|---:|---:|---:|---:|
-| Events | 2 | 2 | 5 | 5 | 2 | 2 |
+| Events through 10-07 (n=18) | 2 | 2 | 5 | 5 | 2 | 2 |
+| Events 10-08 → 10-22 (n=28) | 1 | 1 | 7 | 10 | 6 | 3 |
+| **Total (n=46)** | **3** | **3** | **12** | **15** | **8** | **5** |
 
-All six physical cores are represented. The first two events both landed on core 1, which
-briefly suggested a single marginal core; that hypothesis is dead. Cores 2 and 3 carrying 10
-of 18 is within what random distribution produces at this sample size.
+All six physical cores are still represented, so no single core is failing outright. But the
+distribution is **no longer consistent with chance**: against a uniform expectation of ~7.7
+per core, χ² ≈ 16.1 (5 degrees of freedom, p ≈ 0.007). At 18 events the same test gave
+χ² = 4.0, p ≈ 0.55. Cores 2 and 3 now carry 27 of 46 events (59%).
+
+> ⚠️ The 2026-10-08 revision said cores 2 and 3 carrying 10 of 18 was "within what random
+> distribution produces at this sample size." That was correct at n=18 and is no longer true
+> at n=46. Uneven degradation across cores is consistent with the progressive-degradation
+> hypothesis; it does not identify the cause on its own.
 
 > ⚠️ **An APIC-ID observation worth explicitly retracting.** Every event carries an even APIC
 > ID (thread 0 of its core), never an odd one. This is an artifact of how bank 0 is reported,
@@ -693,12 +835,14 @@ will appear. Memtest86+ remains the only instrument for the memory question.
 
 ### Confirmed present
 
-- **Corrected CPU machine-check errors**: 18 records, bank 0 (IFU), internal parity,
-  2026-09-15 through 2026-10-07.
+- **Corrected CPU machine-check errors**: 46 records in rasdaemon (47 in the kernel journal),
+  bank 0 (IFU), internal parity, 2026-09-15 through 2026-10-22.
+- **Zero** such events in the kernel journal from 2024-04-01 to 2026-09-14 (~879 days of uptime).
 
 ### Confirmed absent
 
-As of 2026-10-08, across 18 events and three weeks:
+As of 2026-10-22 (`hwerr-check.sh` across all nine rasdaemon tables and the kernel journal),
+across 46 events and five weeks:
 
 - Uncorrected (`UC=1`) errors — **none**
 - Errors in any bank other than 0 — **none**
@@ -710,55 +854,90 @@ As of 2026-10-08, across 18 events and three weeks:
 - CXL memory errors
 - Extlog hardware errors
 - Disk errors reported through rasdaemon
-- Thermal or power-limit throttling events
+- Thermal or power-limit throttling events (as of 2026-10-08; not re-checked)
 
 ### Eliminated as causes of the MCE pattern
 
 | Hypothesis | How it was eliminated |
 |---|---|
 | RAM / DIMMs / XMP as sole cause | Events occurred both with XMP on (3000) and off (2133). `MCACOD 0x0005` is not a memory-hierarchy or memory-controller code; `ADDRV=0`, no address logged. |
-| A single failing core | Events on all six physical cores. |
-| Power-limit removal / board auto-OC | RAPL reports Intel stock PL1 125 W / PL2 182 W. |
+| A single failing core | Events on all six physical cores — though no longer evenly (Section 13). |
+| Power-limit removal / board auto-OC | RAPL reports Intel stock PL1 125 W / PL2 182 W (re-confirmed 2026-10-22). |
 | Stale microcode | Running 0x100 (2024-11-14); `iucode_tool` confirms it is the newest revision shipped for signature 0x000A0655. |
+| **A microcode change as the onset trigger** (2026-10-22) | 0x100 was loaded early on every boot from 2026-02-02 onward, seven months before the first event. Package upgrades were 2025-10-22 and 2026-01-12. |
+| **A change in kernel reporting** (2026-10-22) | ~111 clean days on 7.0-series kernels (2026-05-16 → 09-04), the same family running now. |
+| **Baseline silicon behavior** (2026-10-22) | Zero events in ~879 days of uptime before 2026-09-15. This CPU did not always do this. |
+| **A package change at the 2026-10-08 rate step** (2026-10-22) | No reboot since 2026-09-23: kernels 7.0.14-20 through -25 and `pve-firmware` 3.18-7 are installed but not running. |
+| **A new guest at the 2026-10-08 rate step** (2026-10-22) | The only guest start between 2026-10-04 and 10-12 was CT 300 on 10-04, and the following four days stayed at ~1/day. |
 | 32-bit guest / QEMU interaction | All four VMs are 64-bit: `ellsworth` (101) Linux, `hearst` (102) FreeBSD 15.1 amd64, `nuttal` (201) Linux, `truenas` (1000) Linux. (`hearst` shows `ostype: other` in Proxmox, which only means the guest type was never declared.) |
-| Heavy load / thermal | Events occur at idle, across all hours; core temp peaks at 65 °C under pinned load. |
-| Progressive degradation | Rate plateaued at ~1/day for 15 days rather than continuing to climb. |
+| Heavy load / thermal | Events occur at idle, across all hours; core temp peaks at 65 °C under pinned load; 39–45 °C at idle (2026-10-22). |
+| ~~Progressive degradation~~ | ~~Rate plateaued at ~1/day for 15 days.~~ **Withdrawn 2026-10-22** — the plateau did not hold. Now the leading hypothesis (Section 16). |
 
 ### Not conclusively ruled out
 
-- A one-time configuration change at the 2026-09-23 BIOS session (**leading hypothesis**)
-- Board firmware behavior — BIOS 2601 dates from 2021-10-29 and has not been updated
+- **Progressive degradation of the CPU** (**leading hypothesis**, Section 16)
+- Degradation of board power delivery (VRM) rather than the CPU itself — it would produce the
+  same symptoms, and only a CPU swap separates the two
+- Idle-state behavior — events and both freezes cluster at idle; deep C-states may be the
+  *mechanism* through which marginal silicon fails, rather than an independent cause (under
+  test, Section 17.0)
+- A kernel change in 7.0.14-15 — low likelihood: onset came eleven days into that boot rather
+  than at boot, but 7.0.14-14 ran only ~13 clean days, which is too short to exclude it
+- A one-time configuration change at the 2026-09-23 BIOS session — **weakened**: the first two
+  events predate that session
 - IMC / system agent / VCCIO voltage sensitivity introduced by the XMP profile
-- Baseline silicon behavior for this part — i.e. this CPU simply logs IFU parity events at
-  ~1/day and always has, with the pre-09-23 rate reflecting an unobserved period rather than
-  a genuinely lower rate
-- Marginal DRAM (undetectable on this platform from Linux; Memtest86+ not yet run)
-- CPU degradation on a longer timescale than three weeks
+- A shared cause with the silent freezes of 2026-05-16 and 2026-09-04 (Section 1)
+- Marginal DRAM (undetectable on this platform from Linux; Memtest86+ not yet run) — a separate
+  question from the MCEs
 
 ---
 
 ## 16. Current Assessment
 
-### Severity: low. Confidence: moderate.
+### Severity: low, rising. Confidence: moderate.
 
 Corrected IFU parity errors do not corrupt data. The instruction cache holds read-only copies
-and the core refetches on a parity failure. Across 18 events there has been no uncorrected
+and the core refetches on a parity failure. Across 46 events there has been no uncorrected
 error, no other bank, no new signature, and no overflow. **The ZFS pool, the VMs, and host
-data integrity are not at risk from this error class.** The host has been stable throughout.
+data integrity are not at risk from this error class.**
 
-What is unresolved is *why the rate stepped up*, not whether the errors are dangerous.
+What has changed is the trajectory. The question is no longer *why the rate stepped up once*
+but *whether the part is failing*.
 
-### The leading hypothesis
+### The leading hypothesis (revised 2026-10-22)
 
-The step from ~0.2/day to ~1/day coincides with the 2026-09-23 BIOS session in which XMP was
-re-enabled. On Asus boards, enabling XMP also adjusts system-agent and I/O voltages and may
-apply other defaults alongside the memory profile. That is a one-time change that stayed
-changed, which matches the observed step-and-plateau shape far better than progressive
-degradation does.
+**Progressive degradation of the CPU.** The evidence:
 
-It is not proven. The pre-09-23 period also had XMP enabled for most of its duration, at a
-much lower rate — but that period is only 2 events, which is too few to establish a baseline
-with any confidence.
+1. **Zero events for ~2.5 years**, then onset on 2026-09-15 — eleven days into a boot, with no
+   configuration change at that moment.
+2. **A rate that has risen in every window since**: ~0.13 → ~0.27 → ~1.1 → ~1.9 → ~2.1/day.
+3. **No configuration change at either rate step** that explains it (Section 15).
+4. **An uneven spread across cores** that has become statistically significant as the count
+   grew (Section 13).
+
+Caveats, stated plainly:
+
+- Degradation of a Comet Lake part is **not** a widely documented failure pattern in the way
+  it is for 13th/14th-generation Intel desktop CPUs. This is an inference from the shape of
+  the data, not a known issue for this model.
+- Board power delivery could produce the same picture. A CPU swap is the test that separates
+  "CPU" from "board."
+- Every event is still corrected and still bank 0 only.
+
+The superseded 2026-10-08 hypothesis — a one-time change at the 2026-09-23 BIOS session — is
+weakened because the first events predate that session, and a step-then-plateau shape no
+longer describes the data.
+
+### Operational consequences
+
+- **Backups must be current** before anything else changes on this host. Corrected errors are
+  harmless; a degrading part can eventually produce an uncorrected one and a hard crash.
+- In the cluster design ([PVE-CLUSTER-DESIGN-2026-10.md](PVE-CLUSTER-DESIGN-2026-10.md)),
+  `swearengen` stays **out of the HA group**: a node that self-fences or crashes takes TrueNAS
+  and Plex with it, and it is now the least-trusted node.
+- A **replacement CPU** (used i5-10600K) is the most decisive remaining test and the likely
+  endpoint. Errors that stop with a new CPU confirm the CPU; errors that continue point at the
+  board.
 
 ### Escalation thresholds
 
@@ -768,19 +947,105 @@ Re-escalate immediately on any of:
 - **Any** event in a bank other than 0
 - **Any** status value other than `0x9000004000010005`
 - `OVER=1` on any record (events being lost)
-- Sustained rate above ~3/day
+- Sustained rate above ~3/day for seven days
+- **Any further unexplained freeze** of the host
 
-Any of those would change the diagnosis from "known benign error class at an unexplained
-rate" to "CPU degrading," and would make CPU replacement the next step. A used i5-10600K is
-inexpensive.
+Any of those would move from "degrading, still corrected" to "replace now."
 
 ---
 
 ## 17. Recommended Future Testing
 
-### 17.1 Next planned test — XMP-disabled interval
+### 17.0 In progress — C10 disabled at runtime (started 2026-10-22 17:42:55 −04:00)
 
-**This is the current next step.** One variable, bounded duration, decisive either way.
+**Why this ran before 17.1.** The 2026-10-08 plan put a C-state test fifth, "only if the rate
+climbs." The rate has climbed (Section 13), and this test needs no BIOS session and no reboot,
+so it is the cheapest single variable available. XMP and everything else are unchanged.
+
+**What was disabled.** The host uses the `intel_idle` driver, which on this platform takes its
+idle states from the BIOS's ACPI `_CST` table — hence the ACPI names. The MWAIT hints in each
+state's `desc` give the real hardware state:
+
+| sysfs state | Name | MWAIT hint | Hardware state | Exit latency | Test setting |
+|---|---|---|---|---:|---|
+| `state0` | POLL | — | busy-poll | 0 µs | enabled |
+| `state1` | C1_ACPI | `0x0` | C1 | 1 µs | enabled |
+| `state2` | C2_ACPI | `0x30` | C7s | 120 µs | enabled |
+| `state3` | C3_ACPI | `0x60` | **C10** | 1,034 µs | **disabled** |
+
+So the test is specifically **C10 off, C7s still allowed** — narrower than the
+`intel_idle.max_cstate=1` approach originally proposed in 17.5, and done without a reboot.
+
+    # disable C10 on every CPU (reverts on reboot)
+    for s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable; do echo 1 > $s; done
+
+    # verify
+    grep . /sys/devices/system/cpu/cpu0/cpuidle/state*/{name,desc,latency,disable}
+
+    # re-enable
+    for s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable; do echo 0 > $s; done
+
+> ⚠️ **Do not reboot during the window.** A reboot silently re-enables C10 *and* boots kernel
+> 7.0.14-25 instead of the running 7.0.14-19 — two variables at once. Take the pending kernel
+> update between tests, not during one.
+
+**Power cost**, measured from the CPU package energy counter
+(`/sys/class/powercap/intel-rapl:0/energy_uj`) over 60-second windows with normal guest load:
+
+| Measurement (2026-10-22) | C10 disabled | C10 enabled |
+|---|---:|---:|
+| First single sample | 17 W | 25 W |
+| Round 1 | 18 W | 24 W |
+| Round 2 | 18 W | 24 W |
+| Round 3 | 16 W | 29 W |
+| Round 4 | 28 W | 24 W |
+| Round 5 | 17 W | 24 W |
+| **Mean of 5 rounds** | **19.4 W** | **25.0 W** |
+| **Median of 5 rounds** | **18 W** | **24 W** |
+
+**Disabling C10 saves ~6 W of package power on this host.** Four of five rounds split the same
+way; round 4's 28 W with C10 off is most likely a guest load spike landing in that window. The
+rounds alternated (off, on, off, on…), so slow drift in guest load affects both states equally.
+
+This runs the opposite way from what a deeper sleep state should do. The likely explanation: on
+a VM host, guests wake the cores constantly, and a core entering C10 powers down its caches and
+takes ~1 ms to return and refill them. With wake-ups that frequent, residency in C10 is too short
+to repay its entry and exit cost. That explanation is a hypothesis; the measurement is the fact.
+
+    # the measurement: 5 alternating rounds, 60 s each, C10 left disabled at the end
+    rapl=/sys/class/powercap/intel-rapl:0/energy_uj
+    setc10() { for s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable; do echo $1 > $s; done; }
+    measure() { e1=$(cat $rapl); sleep 60; e2=$(cat $rapl); echo $(( (e2 - e1) / 60000000 )); }
+    for i in 1 2 3 4 5; do
+      setc10 1; sleep 5; a=$(measure)
+      setc10 0; sleep 5; b=$(measure)
+      echo "round $i: C10 off ${a} W · C10 on ${b} W"
+    done
+    setc10 1
+
+> ⚠️ Package power only, from the CPU's own counter, truncated to whole watts. The saving at the
+> wall is larger by the PSU's inefficiency. A single 60-second window is too noisy on its own —
+> the first sample happened to agree with the result, but only the alternating rounds establish it.
+
+**Consequence independent of the MCE result:** C10 should stay disabled on this host for power
+and heat. Making it persistent needs a boot-time unit in the style of
+[CPU-GOVERNOR-POWERSAVE.md](CPU-GOVERNOR-POWERSAVE.md)'s `cpu-powersave.service` — added only
+after this test window closes, since the reboot that proves the unit would be a second variable.
+
+**Interpretation** (window ends ~2026-10-29; baseline ~2.1/day, so ~15 expected):
+
+| Result in 7 days | Conclusion |
+|---|---|
+| ≤3 events | C10 is implicated — most likely as the low-voltage state where marginal silicon fails first, not as an independent cause. Confirm by re-enabling C10 for a week (A-B-A) and watching the rate return. |
+| ~10–20 events | C10 is not the trigger. Keep it disabled anyway for the ~6 W saving, and move to 17.1. |
+
+> ⚠️ **The rising baseline cuts one way.** Against a rate that has been climbing, a clear drop is
+> strong evidence. "No change" is weaker evidence than it would be against a flat baseline,
+> because a small effect could be hidden by the continuing rise.
+
+---
+
+### 17.1 XMP-disabled interval (next after 17.0)
 
 1. Disable XMP in the BIOS. Change nothing else.
 2. Confirm: `dmidecode -t memory | grep 'Configured Memory Speed'` → expect 2133 MT/s.
@@ -790,26 +1055,34 @@ Interpretation:
 
 | Result | Conclusion |
 |---|---|
-| ~0–1 events in 7 days | The 2026-09-23 session is implicated. Investigate which setting; consider running at JEDEC or at manually-set 3000 with stock SA/IO voltages. |
-| ~7 events in 7 days | Memory profile is irrelevant. The CPU logs IFU parity at ~1/day regardless. Close the investigation and keep monitoring against the Section 16 thresholds. |
+| ~0–2 events in 7 days | The memory profile or its system-agent / VCCIO voltages are implicated. Consider running at JEDEC, or at manually-set 3000 with stock SA/IO voltages. |
+| Near the prevailing rate | The memory profile is irrelevant. Proceed to 17.2. |
 
-> ⚠️ Earlier reasoning in this investigation argued against running this test on the grounds
-> that a rising trend would contaminate the result. That argument no longer applies — the rate
-> is flat (Section 13), so a 7-day window is a clean comparison.
+> ⚠️ **Revised 2026-10-22.** The earlier note here said the flat rate made a 7-day window a clean
+> comparison. The rate is no longer flat, so the caveat in 17.0 applies here too. Also lower
+> expectations than before: XMP was enabled at onset, but its history before 2026-09-19 is not
+> recorded, so it cannot be said whether the ~2.5 clean years ran with XMP on.
 
 ---
 
-### 17.2 BIOS update (second, if 17.1 is inconclusive)
+### 17.2 Replacement CPU — the decisive test (added 2026-10-22)
 
-BIOS 2601 dates from 2021-10-29. Newer releases exist for the TUF GAMING Z490-PLUS and board
-updates frequently carry voltage and memory-training changes.
+A used i5-10600K is the cheapest component in the suspect chain and the only test that
+separates "CPU" from "board power delivery."
 
-Deferred to second position deliberately: it is a larger change with a less specific expected
-outcome than 17.1. Check Asus release notes first and record the current configuration before
-flashing.
+1. Shut down cleanly (see 17.3 for the shutdown and healthchecks.io notes).
+2. Swap the CPU; keep the BIOS settings, kernel and guests identical.
+3. Count events daily for 7–14 days.
 
-After updating, re-run the 7-day count. A rate unchanged across a BIOS update rules out board
-firmware.
+| Result | Conclusion |
+|---|---|
+| Events stop | The CPU was degrading. Keep the old part labelled; do not reuse it. |
+| Events continue at a similar rate | The CPU is not the cause. Suspect board power delivery (VRM) or the PSU — note the PSU check on the 2026-05-16 fallback list (Section 1). |
+
+**BIOS update, formerly 17.2 — probably not available.** The 2026-10-08 text said newer
+releases exist. As of 2026-10-22, Asus's support page for the non-WiFi TUF GAMING Z490-PLUS
+lists **2601 as the newest**; the 2602 release (2022-02-24) belongs to the separate
+TUF GAMING Z490-PLUS (WI-FI). Verify on the Asus page before ruling it out entirely.
 
 ---
 
@@ -859,7 +1132,12 @@ The goal is to distinguish:
 
 ---
 
-### 17.5 C-state experiment (optional, only if the rate climbs)
+### 17.5 C-state experiment — superseded by 17.0
+
+> **2026-10-22:** run instead as a narrower, reboot-free test (C10 only), Section 17.0. The
+> original text is kept below for reference.
+
+#### Original proposal (2026-10-08)
 
 Events cluster at idle rather than under load, which is consistent with behavior during
 C-state transitions. To test:
@@ -874,7 +1152,7 @@ both inconclusive and the rate is rising.
 
 ### 17.6 Long-duration pinned stress
 
-A meaningful stress test must run for hours, not minutes, given a ~1/day event rate.
+A meaningful stress test must run for hours, not minutes, given an event rate of ~1–2/day.
 
     systemd-run --unit=core-stress \
       taskset -c <cpu>,<sibling> stress-ng --cpu 2 --cpu-method all -t 12h --metrics-brief
@@ -1033,6 +1311,12 @@ Before concluding anything from a rate change:
 > ⚠️ **Give it enough time.** A 3.5-day window produced a "rising trend" reading that two
 > further weeks disproved. Intermittent events at ~1/day need a 7-day minimum observation
 > window per configuration, and preferably two weeks, before the rate means anything.
+>
+> **The rule cuts both ways (added 2026-10-22).** The two weeks that disproved the "rising trend"
+> were then read as a plateau, and the next two weeks disproved that too. A short window is not
+> enough to call a trend *or* its absence. Before writing a conclusion about rate, check the
+> longest history available — here, the kernel journal held 2.5 years that settled the
+> baseline question outright.
 
 If the host becomes unstable, or an escalation threshold from Section 16 is crossed:
 
@@ -1055,15 +1339,27 @@ If the host becomes unstable, or an escalation threshold from Section 16 is cros
 - `MSCOD` (status bits 31:16, value `0x0001`) is model-specific and not publicly documented
   by Intel for client parts, so the precise internal structure that failed cannot be named
   beyond "bank 0 / IFU."
-- The pre-2026-09-23 baseline rests on only 2 events and is too small to be a reliable
-  baseline.
+- ~~The pre-2026-09-23 baseline rests on only 2 events and is too small to be a reliable
+  baseline.~~ **Resolved 2026-10-22:** the kernel journal supplies a ~879-day baseline of zero
+  events (Section 13).
+- The kernel journal's `Machine check events logged` line is rate-limited and carries no
+  detail; pre-rasdaemon history can show *that* events occurred, not their bank or status.
+  Onset coincides with rasdaemon recording, so all but possibly one event (Section 11) has a
+  full record.
+- Memory-speed history before 2026-09-19 is not recorded, so XMP's state during the clean
+  2.5 years is unknown.
+- The C10 power saving (Section 17.0) is package power from RAPL in whole watts, five rounds
+  of 60 s on a host with variable guest load. Robust in direction, approximate in size.
 - No controlled DIMM-isolation or extended offline memory test has been performed. Memtest86+
   remains outstanding.
 - No memory failure has been reproduced.
 - The host has not been returned to BIOS Optimized Defaults, so the full set of settings
   changed in the 2026-09-23 session is not known.
 - The specific symptom that triggered the original 2026-09-14 investigation was never
-  recorded and the relevant journal has rotated (see Section 1).
+  recorded. The 2026-09-04 freeze is now the most likely trigger (Section 1).
+- The 2026-05-16 freeze and the `pcie_aspm=off` / NVMe APST changes that followed it are known
+  only from the journal and an unversioned note on the host. What was observed at the time
+  beyond "full bus hang" was not recorded.
 
 ---
 
@@ -1099,43 +1395,60 @@ If the host becomes unstable, or an escalation threshold from Section 16 is cros
 | MCE trace enabled | `cat /sys/kernel/debug/tracing/events/mce/mce_record/enable` |
 | Trace buffer | `cat /sys/kernel/debug/tracing/trace` |
 | Boot history | `journalctl --list-boots` |
+| MCE events per boot (full history) | `journalctl -b <N> -k -q -g "Machine check events logged" \| wc -l` |
+| Kernel command line per boot | `journalctl -b <N> -k -q -g "Command line"` |
+| Microcode loaded per boot | `journalctl -b <N> -k -q -g "microcode: (Current revision\|Updated early)"` |
+| Did a boot end cleanly? | `journalctl -b <N> -q -n 1` — clean ends with `Journal stopped` |
+| Idle states (name / hint / latency / disabled) | `grep . /sys/devices/system/cpu/cpu0/cpuidle/state*/{name,desc,latency,disable}` |
+| Disable / re-enable C10 (runtime) | `for s in /sys/devices/system/cpu/cpu*/cpuidle/state3/disable; do echo 1 > $s; done` (`0` to re-enable) |
+| CPU package energy counter | `cat /sys/class/powercap/intel-rapl:0/energy_uj` |
 
 ---
 
 ## 21. Final Disposition
 
-**Status: OPEN — corrected CPU MCE pattern under observation, cause of rate step unresolved.**
+**Status: OPEN — corrected CPU MCE pattern, rising; progressive CPU degradation suspected.**
 
 ### Established
 
-- 18 corrected machine-check events between 2026-09-15 and 2026-10-07, all identical: bank 0
-  (IFU), status `0x9000004000010005`, internal parity error.
+- 46 corrected machine-check events recorded by rasdaemon between 2026-09-15 and 2026-10-22
+  (47 in the kernel journal), all identical: bank 0 (IFU), status `0x9000004000010005`,
+  internal parity error.
+- **Zero** such events in ~879 days of uptime from 2024-04-01 to 2026-09-14, including ~111
+  days on the same 7.0 kernel family.
+- The rate has risen in every window since onset: ~0.13 → ~0.27 → ~1.1 → ~1.9 → ~2.1/day.
 - The error class is corrected and non-data-corrupting. No uncorrected event, no other bank,
   no other status value, no overflow.
 - RAM is not the source of these events: `MCACOD 0x0005` is not a memory code, no address is
   logged, and events occurred both with XMP enabled and disabled.
-- Events are distributed across all six physical cores — not a single failing core.
-- The host is running Intel stock power limits, current microcode, and all-64-bit guests.
-- Events occur at idle and show no load or thermal correlation.
-- The rate stepped up once around 2026-09-23 and has since held flat at ~1/day for 15 days.
+- All six cores are represented, but unevenly: cores 2 and 3 carry 59% of events, significant
+  at n=46 (χ² ≈ 16.1, p ≈ 0.007).
+- The host runs Intel stock power limits, current microcode (0x100 on every boot since at
+  least 2026-02-02), and all-64-bit guests.
+- No reboot, package activation, BIOS session or new guest coincides with the 2026-10-08 rate
+  step.
+- The host froze silently twice in 2026 — 2026-05-16 and 2026-09-04 — both at night near idle.
 
 ### Unresolved
 
-- Why the rate stepped up. The 2026-09-23 BIOS session (XMP re-enabled) is the leading
-  candidate but is not proven.
-- Whether ~1/day is in fact this CPU's baseline and the earlier low rate was an artifact of a
-  2-event sample.
+- Whether the CPU or the board's power delivery is degrading (17.2 separates them).
+- Whether deep idle (C10) is the mechanism (17.0, in progress).
+- Whether the two freezes share a cause with the MCEs.
 - DRAM health at XMP — untestable from Linux on this platform, Memtest86+ outstanding.
 
 ### Next actions
 
-1. **7-day XMP-disabled interval** (Section 17.1) — the decisive test, one variable.
-2. BIOS update from 2601, if 17.1 is inconclusive (Section 17.2).
-3. Memtest86+ overnight (Section 17.3) — separate question, still worth closing.
-4. Continue running `hwerr-check.sh` and watch the Section 16 escalation thresholds.
+1. **Confirm backups are current** before any further change on this host.
+2. **Complete the C10 test** (Section 17.0) through ~2026-10-29 with no reboot. Then make C10
+   disabled persistent regardless of the result — it saves ~6 W on this host.
+3. **XMP-disabled interval** (Section 17.1).
+4. **Replacement CPU** (Section 17.2) — the decisive test and the likely endpoint.
+5. Memtest86+ overnight (Section 17.3) — separate question, still worth closing.
+6. Continue `hwerr-check.sh` daily and watch the Section 16 thresholds. Wiring it to an Uptime
+   Kuma push monitor (Section 14) would turn a manual check into an alert.
 
 ### Operational posture
 
-No hardware change is recommended at this time. The host continues to run production VMs.
-That posture changes immediately on any uncorrected error, any error in another bank, or a
-sustained rate above ~3/day.
+The host continues to run production VMs. It stays out of any HA group in the cluster design.
+That posture changes immediately on any uncorrected error, any error in another bank, a
+sustained rate above ~3/day, or another unexplained freeze.
