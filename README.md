@@ -1,14 +1,15 @@
 # homelab-docs
 
-Production-style runbooks for a multi-site homelab: three Proxmox hosts across
-two sites, ZFS storage on TrueNAS SCALE, OPNsense edge routing over XGS-PON
-fiber, verified off-site backups, and a containerized service stack.
+Production-style runbooks for a multi-site homelab: Proxmox across two sites,
+ZFS storage on TrueNAS SCALE, OPNsense edge routing over XGS-PON fiber, verified
+off-site backups, and a containerized service stack.
+
+**Start with the featured projects at [greenbean.org](https://greenbean.org)** —
+this repo is the full catalog.
 
 These are working documents, not tutorials. Each one records what was actually
 built, why the approach was chosen, what broke along the way, and how to rebuild
 it from nothing.
-
-**28 runbooks, ~9,300 lines** of production-style documentation.
 
 ---
 
@@ -17,7 +18,7 @@ it from nothing.
 ### System Automation
 | Doc | Covers |
 | --- | --- |
-| [IaC-RUNBOOK.md](https://github.com/greenbeanorg/homelab-automation/blob/master/RUNBOOK.md) | A Terraform + Ansible pipeline that provisions a 3-node k3s cluster, a PostgreSQL host, and an Icinga2 monitoring host on a single Proxmox node (garrett), deploys a real Flask + Postgres app to the cluster, exposes it publicly over TLS via a reverse proxy on a separate cloud host, and monitors the whole thing — all from code. |
+| [homelab-automation](https://github.com/greenbeanorg/homelab-automation) (separate repo) | A Terraform + Ansible pipeline that provisions a 3-node k3s cluster, a PostgreSQL host, and an Icinga2 monitoring host on a single Proxmox node (garrett), deploys a real Flask + Postgres app to the cluster, exposes it publicly over TLS via a reverse proxy on a separate cloud host, and monitors the whole thing — all from code. |
 | [TERRAFORM-PROXMOX-FIRST-APPLY-2026-09.md](./TERRAFORM-PROXMOX-FIRST-APPLY-2026-09.md) | First Terraform + Proxmox LXC provisioning pass from dority; covers cert/hostname drift and API token permission scoping gotchas |
 
 ### System Troubleshooting
@@ -87,8 +88,7 @@ Sanitization is enforced by a pre-commit hook rather than by memory:
 | Secrets referenced as `${VAR}` or `<placeholder>`, never literals |
 | MAC addresses never committed |
 
-Runbooks written before October 2026 still use the older masked form
-(`10.x.x.N`); they're being converted to real addresses as they're revised.
+Some older runbooks still use the masked form (`10.x.x.N`).
 
 The hook lives at [`scripts/pre-commit`](scripts/pre-commit) and blocks commits
 containing hardcoded credentials, private keys, tokens, MAC addresses, or staged
@@ -101,9 +101,3 @@ carried by a clone:
 cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 ```
 
----
-
-## In progress
-
-- Ansible roles for fleet configuration (baseline, NUT, restic, Docker hosts)
-- Prometheus + Grafana + node_exporter for metrics alongside Uptime Kuma's up/down
